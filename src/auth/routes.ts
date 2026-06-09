@@ -88,7 +88,10 @@ export function handleAuthServerMetadata(
 // POST /register
 //
 // Azure AD doesn't support open DCR. We return the pre-registered client_id
-// so Claude.ai can proceed with the OAuth flow.
+// and echo back the client's requested redirect_uris so any MCP client
+// (Claude.ai, VS Code / GitHub Copilot, Copilot Studio, Foundry agents, etc.)
+// can proceed with the OAuth flow. Azure AD enforces redirect_uri allowlist at
+// the /authorize step — these are not validated here.
 // ---------------------------------------------------------------------------
 
 export async function handleRegister(
@@ -96,13 +99,26 @@ export async function handleRegister(
   res: ServerResponse,
   config: EntraConfig,
 ): Promise<void> {
-  // Read and discard request body (Claude.ai sends redirect_uris etc.)
-  await readBody(req);
+  const rawBody = await readBody(req);
+
+  let requestedRedirectUris: string[] = [];
+  if (rawBody) {
+    try {
+      const parsed = JSON.parse(rawBody) as { redirect_uris?: unknown };
+      if (Array.isArray(parsed.redirect_uris)) {
+        requestedRedirectUris = parsed.redirect_uris.filter(
+          (u): u is string => typeof u === "string",
+        );
+      }
+    } catch {
+      // Non-JSON body — ignore and fall through with empty list
+    }
+  }
 
   sendJson(res, 201, {
     client_id: config.clientId,
     client_id_issued_at: Math.floor(Date.now() / 1000),
-    redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+    redirect_uris: requestedRedirectUris,
     grant_types: ["authorization_code", "refresh_token"],
     token_endpoint_auth_method: "none",
   });
