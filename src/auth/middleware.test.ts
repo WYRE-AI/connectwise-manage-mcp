@@ -26,6 +26,7 @@ const config: EntraConfig = {
   tenantId: "test-tenant-id",
   clientId: "test-client-id",
   audience: "api://test-client-id",
+  extraAudiences: [],
   requiredRole: "CWM.Access",
   serverUrl: "https://mcp.example.com",
 };

@@ -17,10 +17,16 @@ export function getEntraConfig(): EntraConfig {
     );
   }
 
+  const extraAudiences = (process.env.AZURE_EXTRA_AUDIENCES ?? "")
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
+
   return {
     tenantId,
     clientId,
     audience,
+    extraAudiences,
     requiredRole: process.env.AZURE_REQUIRED_ROLE ?? "CWM.Access",
     serverUrl: serverUrl.replace(/\/$/, ""),
     bearerToken: process.env.MCP_BEARER_TOKEN || undefined,
@@ -64,10 +70,13 @@ export async function validateToken(
 ): Promise<EntraIdentity> {
   // Try multiple audiences — Azure AD may issue tokens with api://clientId or
   // just clientId depending on app registration configuration.
+  // AZURE_EXTRA_AUDIENCES supports additional formats such as the Teams
+  // federated connector audience (api://auth-{uuid}/{clientId}).
   const audiencesToTry = [
     config.audience,
     config.clientId,
     `api://${config.clientId}`,
+    ...config.extraAudiences,
   ].filter((a, i, arr) => arr.indexOf(a) === i); // deduplicate
 
   let lastError: unknown;
