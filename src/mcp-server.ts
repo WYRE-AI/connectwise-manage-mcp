@@ -17,6 +17,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getConfig, CwManageClient, type CwManageConfig } from "./api-client.js";
+import { registerCardResources } from "./resources.js";
 import { registerTicketTools } from "./tools/tickets.js";
 import { registerCompanyTools } from "./tools/companies.js";
 import { registerContactTools } from "./tools/contacts.js";
@@ -98,6 +99,10 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
     name: "connectwise-manage-mcp",
     version: "1.4.0",
   });
+
+  // MCP Apps (SEP-1865): the ui:// ticket card is static embedded HTML, so it
+  // is served with or without credentials (hosts may prefetch it).
+  registerCardResources(server);
 
   const config = configOverride ?? getConfig();
 

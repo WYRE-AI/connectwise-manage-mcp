@@ -65,6 +65,17 @@ If your self-hosted instance uses a self-signed certificate, also set `CW_MANAGE
 
 ## Available Tools
 
+### Interactive Ticket Card (MCP Apps)
+
+`cw_get_ticket` renders as an interactive card in MCP Apps hosts
+(Claude Desktop/web) with an in-card "Add note" round-trip via
+`cw_add_ticket_note` that always posts internal-only (`internalAnalysisFlag`)
+notes; plain-JSON behavior is unchanged in other hosts. The card is neutral by
+default and brandable via `window.__BRAND__` injection or `MCP_BRAND_*` env
+vars (`MCP_BRAND_NAME`, `MCP_BRAND_LOGO_URL`, `MCP_BRAND_PRIMARY_COLOR`,
+`MCP_BRAND_ACCENT_COLOR`, `MCP_BRAND_BG`, `MCP_BRAND_TEXT`) — no rebuild
+needed.
+
 ### Tickets
 - `cw_search_tickets` — Search service tickets with conditions
 - `cw_get_ticket` — Get a ticket by ID

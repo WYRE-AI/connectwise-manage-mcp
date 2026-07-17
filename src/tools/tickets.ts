@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { buildTicketCard, TICKET_CARD_META } from "../card.builder.js";
 
 export function registerTicketTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -32,15 +33,23 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "cw_get_ticket",
-    "Get a specific service ticket by ID.",
     {
-      id: z.number().describe("Ticket ID"),
+      description: "Get a specific service ticket by ID.",
+      inputSchema: {
+        id: z.number().describe("Ticket ID"),
+      },
+      // MCP Apps (SEP-1865): renders as an interactive ticket card in App hosts.
+      _meta: TICKET_CARD_META,
     },
     async ({ id }) => {
-      const result = await client.get(`/service/tickets/${id}`);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      const result = await client.get<Record<string, unknown>>(`/service/tickets/${id}`);
+      // MCP Apps: attach the normalized card payload the ui:// ticket card
+      // renders from. Best-effort — a null card just means no UI surface.
+      const card = await buildTicketCard(result, client);
+      const payload = card ? { ...result, _card: card } : result;
+      return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
     },
   );
 
@@ -125,16 +134,21 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
     },
   );
 
-  server.tool(
+  server.registerTool(
     "cw_add_ticket_note",
-    "Add a note to a service ticket. Use detailDescriptionFlag for a description note, internalAnalysisFlag for an internal-only note, or resolutionFlag for a resolution note. Defaults to a plain discussion note visible to the customer.",
     {
-      id: z.number().describe("Ticket ID"),
-      text: z.string().describe("Note text content"),
-      detailDescriptionFlag: z.boolean().optional().describe("Add as detail description (default: false)"),
-      internalAnalysisFlag: z.boolean().optional().describe("Mark as internal analysis only (default: false)"),
-      resolutionFlag: z.boolean().optional().describe("Mark as resolution note (default: false)"),
-      customerUpdatedFlag: z.boolean().optional().describe("Flag that the customer was updated (default: false)"),
+      description:
+        "Add a note to a service ticket. Use detailDescriptionFlag for a description note, internalAnalysisFlag for an internal-only note, or resolutionFlag for a resolution note. Defaults to a plain discussion note visible to the customer.",
+      inputSchema: {
+        id: z.number().describe("Ticket ID"),
+        text: z.string().describe("Note text content"),
+        detailDescriptionFlag: z.boolean().optional().describe("Add as detail description (default: false)"),
+        internalAnalysisFlag: z.boolean().optional().describe("Mark as internal analysis only (default: false)"),
+        resolutionFlag: z.boolean().optional().describe("Mark as resolution note (default: false)"),
+        customerUpdatedFlag: z.boolean().optional().describe("Flag that the customer was updated (default: false)"),
+      },
+      // MCP Apps (SEP-1865): the ticket card's "Add note" round-trip target.
+      _meta: TICKET_CARD_META,
     },
     async ({ id, text, detailDescriptionFlag, internalAnalysisFlag, resolutionFlag, customerUpdatedFlag }) => {
       const body: Record<string, unknown> = { text };

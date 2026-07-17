@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Added
+
+- **Interactive ticket card via MCP Apps (SEP-1865).** `cw_get_ticket` results now render as an interactive card in MCP Apps hosts (Claude Desktop/web, and other hosts advertising the `io.modelcontextprotocol/ui` extension), instead of a wall of JSON. The card shows status, priority, company, contact, owner, and board as human-readable labels, key dates, and recent notes — and includes a working "Add note" round-trip that calls `cw_add_ticket_note` from inside the card, defaulting to an internal-only (`internalAnalysisFlag`) note resolved server-side. Non-App hosts are unaffected: the tool's JSON payload is unchanged apart from a new `_card` field.
+  - The two renderable tools advertise the UI via `_meta` (`ui/resourceUri`, plus the nested `ui.resourceUri` form) pointing at a new `ui://connectwise-manage/ticket-card.html` resource served as `text/html;profile=mcp-app`. The card HTML is a self-contained vite single-file bundle embedded at build time (`src/generated/ticket-card-html.ts`, committed), so it serves identically from stdio, Node HTTP, and the fs-less Cloudflare Workers runtime. The server now declares the `resources` capability and answers `resources/list` / `resources/read` (`src/resources.ts`).
+  - The card is neutral by default (system fonts, no vendor identity, no external fetches) and brandable via `window.__BRAND__` injection or `MCP_BRAND_*` env vars (`MCP_BRAND_NAME`, `MCP_BRAND_LOGO_URL`, `MCP_BRAND_PRIMARY_COLOR`, `MCP_BRAND_ACCENT_COLOR`, `MCP_BRAND_BG`, `MCP_BRAND_TEXT`): at serve time the server replaces the card's BRAND_INJECT marker with an inline, `<`-escaped `window.__BRAND__` script, so self-hosters can theme the card without rebuilding. No brand configured = HTML served unchanged.
+
 ### Changed
 
 - Publish the package to the GitHub Packages npm registry (`npm.pkg.github.com`) on release: `@semantic-release/npm` `npmPublish` enabled and `publishConfig.registry` set.
