@@ -45,8 +45,8 @@
   },
   "homepage": "https://github.com/wyre-technology/connectwise-manage-mcp#readme",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "jose": "^6.2.3"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "jose": "^6.2.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
