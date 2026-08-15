@@ -18,6 +18,8 @@ vi.mock("jose", async () => {
 
 import { jwtVerify } from "jose";
 
+type MockJwtVerifyResult = Awaited<ReturnType<typeof jwtVerify>>;
+
 // ---------------------------------------------------------------------------
 // Shared test config
 // ---------------------------------------------------------------------------
@@ -58,8 +60,8 @@ describe("validateToken", () => {
         sub: "test-sub",
       },
       protectedHeader: { alg: "RS256" },
-      key: {} as any,
-    } as any);
+      key: {} as unknown as MockJwtVerifyResult["key"],
+    } as unknown as MockJwtVerifyResult);
 
     const identity = await validateToken("valid-token", config, mockJwks);
 
@@ -84,8 +86,8 @@ describe("validateToken", () => {
         sub: "test-sub",
       },
       protectedHeader: { alg: "RS256" },
-      key: {} as any,
-    } as any);
+      key: {} as unknown as MockJwtVerifyResult["key"],
+    } as unknown as MockJwtVerifyResult);
 
     await expect(validateToken("valid-token", config, mockJwks)).rejects.toMatchObject({
       statusCode: 401,
@@ -108,8 +110,8 @@ describe("validateToken", () => {
         sub: "test-sub",
       },
       protectedHeader: { alg: "RS256" },
-      key: {} as any,
-    } as any);
+      key: {} as unknown as MockJwtVerifyResult["key"],
+    } as unknown as MockJwtVerifyResult);
 
     const error = await validateToken("valid-token", config, mockJwks).catch((e) => e);
     expect(error).toBeInstanceOf(AuthError);
@@ -126,7 +128,6 @@ describe("validateToken", () => {
   });
 
   it("propagates AuthError immediately without retrying other audiences", async () => {
-    const authErr = new AuthError("Access denied: missing required role 'CWM.Access'", 403);
     vi.mocked(jwtVerify).mockResolvedValueOnce({
       payload: {
         tid: "test-tenant-id",
@@ -140,8 +141,8 @@ describe("validateToken", () => {
         sub: "sub",
       },
       protectedHeader: { alg: "RS256" },
-      key: {} as any,
-    } as any);
+      key: {} as unknown as MockJwtVerifyResult["key"],
+    } as unknown as MockJwtVerifyResult);
 
     const error = await validateToken("bad-role-token", config, mockJwks).catch((e) => e);
     expect(error).toBeInstanceOf(AuthError);
