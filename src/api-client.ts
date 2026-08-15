@@ -11,7 +11,14 @@
  *   CW_MANAGE_PRIVATE_KEY       - API member private key
  *   CW_MANAGE_CLIENT_ID         - Client ID from ConnectWise Developer Portal
  *   CW_MANAGE_REJECT_UNAUTHORIZED - Set to "false" to allow self-signed certs (default: "true")
+ *
+ * Self-signed certificate support is scoped to this client instance's own
+ * requests via an undici Agent passed as fetch's `dispatcher` option -- NOT
+ * via the process-global NODE_TLS_REJECT_UNAUTHORIZED env var, which would
+ * affect every concurrent request in the process (including unrelated
+ * tenants' cloud-hosted, fully-verified connections).
  */
+import { Agent } from "undici";
 
 export interface CwManageConfig {
   baseUrl: string;
@@ -46,7 +53,7 @@ export class CwManageClient {
   private readonly authHeader: string;
   private readonly clientId: string;
   private readonly apiBase: string;
-  private readonly rejectUnauthorized: boolean;
+  private readonly dispatcher: Agent;
 
   constructor(config: CwManageConfig) {
     // Auth: Basic base64("{companyId}+{publicKey}:{privateKey}")
@@ -57,8 +64,13 @@ export class CwManageClient {
     this.apiBase = config.baseUrl.includes("/v4_6_release/")
       ? config.baseUrl.replace(/\/+$/, "")
       : `${config.baseUrl}/v4_6_release/apis/3.0`;
-    this.rejectUnauthorized =
+    const rejectUnauthorized =
       process.env.CW_MANAGE_REJECT_UNAUTHORIZED !== "false";
+    // Scoped to this client instance's own connections only -- never touches
+    // process.env, so a self-hosted (self-signed) instance's relaxed TLS
+    // verification can never bleed into a concurrent request against a
+    // different (cloud, fully-verified) tenant's connection.
+    this.dispatcher = new Agent({ connect: { rejectUnauthorized } });
   }
 
   private defaultHeaders(): Record<string, string> {
@@ -91,49 +103,43 @@ export class CwManageClient {
       }
     }
 
-    // For self-hosted instances with self-signed certificates
-    const fetchOptions: RequestInit & { dispatcher?: unknown } = {
+    const fetchOptions: RequestInit = {
       method,
       headers: this.defaultHeaders(),
     };
+
+    // Self-hosted instances with self-signed certificates: the dispatcher
+    // built in the constructor scopes rejectUnauthorized to THIS client's
+    // connections only, with no process-global state involved.
+    //
+    // Assigned via a cast rather than a typed `dispatcher` field on
+    // fetchOptions: Node's global fetch/RequestInit types (from the
+    // `undici-types` package bundled with @types/node) declare their own
+    // `Dispatcher` interface, structurally incompatible with the standalone
+    // `undici` package's `Dispatcher` -- a well-known dual-package hazard.
+    // The value is fully compatible at runtime (Node's fetch is undici under
+    // the hood); only the type-checker sees two different declarations.
+    (fetchOptions as { dispatcher?: unknown }).dispatcher = this.dispatcher;
 
     if (options?.body !== undefined) {
       fetchOptions.body = JSON.stringify(options.body);
     }
 
-    // Node 18+ supports rejecting unauthorized via the global agent or
-    // environment variable NODE_TLS_REJECT_UNAUTHORIZED. We set it here
-    // so callers don't have to worry about it.
-    const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-    if (!this.rejectUnauthorized) {
-      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    const response = await fetch(url.toString(), fetchOptions);
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(
+        `ConnectWise API ${method} ${path} returned ${response.status}: ${errorBody}`,
+      );
     }
 
-    try {
-      const response = await fetch(url.toString(), fetchOptions);
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(
-          `ConnectWise API ${method} ${path} returned ${response.status}: ${errorBody}`,
-        );
-      }
-
-      // Some endpoints return 204 No Content
-      if (response.status === 204) {
-        return undefined as T;
-      }
-
-      return (await response.json()) as T;
-    } finally {
-      if (!this.rejectUnauthorized) {
-        if (prevTls === undefined) {
-          delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-        } else {
-          process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls;
-        }
-      }
+    // Some endpoints return 204 No Content
+    if (response.status === 204) {
+      return undefined as T;
     }
+
+    return (await response.json()) as T;
   }
 
   /** GET helper */
