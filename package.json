@@ -1,5 +1,5 @@
 {
-  "name": "@wyre-technology/connectwise-manage-mcp",
+  "name": "@wyre-ai/connectwise-manage-mcp",
   "version": "1.4.0",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
@@ -28,7 +28,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wyre-technology/connectwise-manage-mcp.git"
+    "url": "git+https://github.com/WYRE-AI/connectwise-manage-mcp.git"
   },
   "keywords": [
     "mcp",
@@ -41,9 +41,9 @@
   "author": "Wyre Technology",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/wyre-technology/connectwise-manage-mcp/issues"
+    "url": "https://github.com/WYRE-AI/connectwise-manage-mcp/issues"
   },
-  "homepage": "https://github.com/wyre-technology/connectwise-manage-mcp#readme",
+  "homepage": "https://github.com/WYRE-AI/connectwise-manage-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "jose": "^6.2.8",

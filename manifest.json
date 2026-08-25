@@ -5,9 +5,9 @@
   "version": "0.0.0",
   "description": "MCP server for ConnectWise Manage PSA - access tickets, companies, contacts, and projects through AI assistants",
   "long_description": "Provides AI assistants with structured access to your ConnectWise Manage PSA data. Manage service tickets, companies, contacts, projects, and agreements through the Model Context Protocol.",
-  "author": { "name": "Wyre Technology", "url": "https://github.com/wyre-technology" },
-  "repository": { "type": "git", "url": "https://github.com/wyre-technology/connectwise-manage-mcp" },
-  "homepage": "https://github.com/wyre-technology/connectwise-manage-mcp",
+  "author": { "name": "Wyre Technology", "url": "https://github.com/WYRE-AI" },
+  "repository": { "type": "git", "url": "https://github.com/WYRE-AI/connectwise-manage-mcp" },
+  "homepage": "https://github.com/WYRE-AI/connectwise-manage-mcp",
   "license": "Apache-2.0",
   "keywords": ["connectwise", "manage", "psa", "msp", "tickets", "it-management"],
   "server": {

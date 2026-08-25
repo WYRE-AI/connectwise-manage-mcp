@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
-    image: ghcr.io/wyre-technology/connectwise-manage-mcp:latest
+    image: ghcr.io/wyre-ai/connectwise-manage-mcp:latest
     container_name: connectwise-manage-mcp-server
     restart: unless-stopped
     ports:

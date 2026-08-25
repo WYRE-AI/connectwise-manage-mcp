@@ -3,7 +3,7 @@ spec:
   services:
   - name: connectwise-manage-mcp
     github:
-      repo: wyre-technology/connectwise-manage-mcp
+      repo: WYRE-AI/connectwise-manage-mcp
       branch: main
       deploy_on_push: true
     source_dir: /

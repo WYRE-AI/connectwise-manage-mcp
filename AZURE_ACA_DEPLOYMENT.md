@@ -386,7 +386,7 @@ Use this path if you are deploying the unmodified upstream image. No Docker buil
 
 ```powershell
 # Set the image reference variable used in Phase 7
-$IMAGE_REF = "ghcr.io/wyre-technology/connectwise-manage-mcp:latest"
+$IMAGE_REF = "ghcr.io/wyre-ai/connectwise-manage-mcp:latest"
 ```
 
 > **Note:** If your fork's changes are merged upstream, you can switch from Path A to Path B and decommission ACR entirely.
@@ -709,7 +709,7 @@ az containerapp update `
 az containerapp update `
   --name $ACA_APP_NAME `
   --resource-group $RESOURCE_GROUP `
-  --image "ghcr.io/wyre-technology/connectwise-manage-mcp:latest"
+  --image "ghcr.io/wyre-ai/connectwise-manage-mcp:latest"
 ```
 
 ### Rotate ConnectWise API Keys
