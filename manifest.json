@@ -16,7 +16,7 @@
     "mcp_config": {
       "command": "node",
       "args": ["${__dirname}/dist/index.js"],
-      "env": { "CW_MANAGE_COMPANY_ID": "${user_config.cw_manage_company_id}", "CW_MANAGE_PUBLIC_KEY": "${user_config.cw_manage_public_key}", "CW_MANAGE_PRIVATE_KEY": "${user_config.cw_manage_private_key}", "CW_MANAGE_CLIENT_ID": "${user_config.cw_manage_client_id}", "CW_MANAGE_BASE_URL": "${user_config.cw_manage_base_url}", "MCP_TRANSPORT": "stdio" }
+      "env": { "CW_MANAGE_COMPANY_ID": "${user_config.cw_manage_company_id}", "CW_MANAGE_PUBLIC_KEY": "${user_config.cw_manage_public_key}", "CW_MANAGE_PRIVATE_KEY": "${user_config.cw_manage_private_key}", "CW_MANAGE_CLIENT_ID": "${user_config.cw_manage_client_id}", "CW_MANAGE_URL": "${user_config.cw_manage_base_url}", "MCP_TRANSPORT": "stdio" }
     }
   },
   "tools_generated": true,
