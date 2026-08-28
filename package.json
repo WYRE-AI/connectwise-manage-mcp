@@ -46,7 +46,7 @@
   "homepage": "https://github.com/WYRE-AI/connectwise-manage-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "jose": "^6.2.8",
+    "jose": "^6.2.10",
     "undici": "^8.10.0"
   },
   "devDependencies": {
