@@ -52,6 +52,48 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
     },
   );
 
+  // The recap endpoints are the billing rollup ConnectWise computes per
+  // agreement: amount consumed, amount remaining, overrun, and the last and
+  // next invoice.
+  //
+  // The collection path keeps its trailing slash on purpose. ConnectWise's
+  // published OpenAPI contract ("Connectwise Manage Public Endpoints", 2025.16)
+  // documents `GET /finance/agreementrecap/` and the slash-less
+  // `/finance/agreementrecap` appears nowhere in it — unlike its sibling
+  // `/finance/agreements`, which has no slash. The by-id path, confusingly,
+  // has no trailing slash. Do not "tidy" either one.
+  server.tool(
+    "cw_search_agreement_recaps",
+    "Search agreement recaps — the billing rollup ConnectWise computes per agreement: starting, used, remaining, available and overrun amounts, unbilled periods, and the last and next invoice amount and date. Use this to answer agreement burn-down and overage questions without adding up additions by hand.",
+    {
+      conditions: z.string().optional().describe("ConnectWise conditions query string (e.g. \"companyName like '%Acme%'\")"),
+      page: z.number().optional().describe("Page number (default: 1)"),
+      pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
+      orderBy: z.string().optional().describe("Field to order by (e.g. 'remainingAmount asc')"),
+    },
+    async ({ conditions, page, pageSize, orderBy }) => {
+      const result = await client.get("/finance/agreementrecap/", {
+        conditions,
+        page: page ?? 1,
+        pageSize: pageSize ?? 25,
+        orderBy,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "cw_get_agreement_recap",
+    "Get the billing recap for a specific agreement by agreement ID.",
+    {
+      id: z.number().describe("Agreement ID"),
+    },
+    async ({ id }) => {
+      const result = await client.get(`/finance/agreementrecap/${id}`);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
   server.tool(
     "cw_search_invoices",
     "Search invoices in ConnectWise Manage.",
