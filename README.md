@@ -131,10 +131,24 @@ needed.
 - `cw_search_agreements` — Search agreements
 - `cw_get_agreement` — Get an agreement by ID
 - `cw_get_agreement_additions` — Get additions (line items) on an agreement
+- `cw_search_agreement_recaps` — Search agreement billing recaps (used, remaining, overrun, next invoice)
+- `cw_get_agreement_recap` — Get the billing recap for one agreement
 
 ### Invoices
 - `cw_search_invoices` — Search invoices
 - `cw_get_invoice` — Get an invoice by ID
+
+### Procurement
+- `cw_search_purchase_orders` — Search purchase orders
+- `cw_get_purchase_order` — Get a purchase order by ID
+- `cw_get_purchase_order_items` — Get the line items on a purchase order
+- `cw_search_procurement_products` — Search procurement product items (SKUs placed on a ticket, project, order or opportunity)
+- `cw_get_procurement_product` — Get a procurement product item by ID
+
+### Sales Orders
+- `cw_search_sales_orders` — Search sales orders
+- `cw_get_sales_order` — Get a sales order by ID
+- `cw_get_sales_order_products` — Get the product items on a sales order
 
 ### Opportunities
 - `cw_search_opportunities` — Search opportunities
