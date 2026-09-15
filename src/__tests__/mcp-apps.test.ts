@@ -297,9 +297,20 @@ describe("MCP Apps ticket card", () => {
         id: 6,
         method: "tools/call",
         params: { name: "cw_get_ticket", arguments: { id: 77 } },
-      })) as { result?: { content?: { text?: string }[] } };
+      })) as {
+        result?: {
+          content?: { text?: string }[];
+          structuredContent?: Record<string, unknown>;
+        };
+      };
 
-      const payload = JSON.parse(body.result?.content?.[0]?.text ?? "{}");
+      expect(body.result?.content?.[0]?.text).toBe(
+        "Ticket #77: Server offline (no priority, New)",
+      );
+      const payload = body.result?.structuredContent as Record<
+        string,
+        unknown
+      >;
       // Model-visible ticket fields are unchanged …
       expect(payload).toMatchObject(ticket);
       // … with the additive normalized card.
@@ -333,10 +344,19 @@ describe("MCP Apps ticket card", () => {
         id: 7,
         method: "tools/call",
         params: { name: "cw_get_ticket", arguments: { id: 78 } },
-      })) as { result?: { isError?: boolean; content?: { text?: string }[] } };
+      })) as {
+        result?: {
+          isError?: boolean;
+          content?: { text?: string }[];
+          structuredContent?: Record<string, unknown>;
+        };
+      };
 
       expect(body.result?.isError).toBeFalsy();
-      const payload = JSON.parse(body.result?.content?.[0]?.text ?? "{}");
+      const payload = body.result?.structuredContent as Record<
+        string,
+        unknown
+      >;
       expect(payload).toMatchObject(ticket);
       // Card still renders (notes degrade to empty), tool result unharmed.
       expect(payload._card).toMatchObject({ id: 78, notes: [] });

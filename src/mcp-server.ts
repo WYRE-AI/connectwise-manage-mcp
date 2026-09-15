@@ -95,10 +95,19 @@ export function resolveGatewayConfig(
  *   When provided, the client is built from it instead of reading process.env.
  */
 export function createMcpServer(configOverride?: CwManageConfig): McpServer {
-  const server = new McpServer({
-    name: "connectwise-manage-mcp",
-    version: "1.4.0",
-  });
+  const server = new McpServer(
+    {
+      name: "connectwise-manage-mcp",
+      version: "1.4.0",
+    },
+    {
+      capabilities: {
+        extensions: {
+          "io.modelcontextprotocol/ui": {},
+        },
+      },
+    }
+  );
 
   // MCP Apps (SEP-1865): the ui:// ticket card is static embedded HTML, so it
   // is served with or without credentials (hosts may prefetch it).
