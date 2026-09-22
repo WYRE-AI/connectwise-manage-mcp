@@ -68,4 +68,39 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
+
+  server.tool(
+    "cw_update_time_entry",
+    "Update a time entry with JSON Patch (Manage PATCH /time/entries/{id}). Use this to correct a mistaken entry, including actualHours on a metered agreement (those hours round to 0.25). Paths are field names such as actualHours, notes, internalNotes, timeStart, timeEnd, or billableOption. Billed entries may be rejected by Manage.",
+    {
+      id: z.number().describe("Time entry ID"),
+      operations: z
+        .array(
+          z.object({
+            op: z.enum(["replace", "add", "remove"]).describe("Patch operation"),
+            path: z.string().describe("Field path (e.g. 'actualHours', 'notes', 'timeEnd')"),
+            value: z.unknown().optional().describe("New value"),
+          }),
+        )
+        .describe("JSON Patch operations applied to the time entry"),
+    },
+    async ({ id, operations }) => {
+      const result = await client.patch(`/time/entries/${id}`, operations);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "cw_delete_time_entry",
+    "Delete a time entry (Manage DELETE /time/entries/{id}). Use this to remove a mistaken entry before it is billed. Manage rejects deletes of entries that are already billed.",
+    {
+      id: z.number().describe("Time entry ID"),
+    },
+    async ({ id }) => {
+      await client.delete(`/time/entries/${id}`);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ id, deleted: true }, null, 2) }],
+      };
+    },
+  );
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { buildTicketCard, TICKET_CARD_META } from "../card.builder.js";
+import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
 
 export function registerTicketTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -66,8 +67,14 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       typeId: z.number().optional().describe("Type ID"),
       subTypeId: z.number().optional().describe("SubType ID"),
       initialDescription: z.string().optional().describe("Initial ticket description"),
+      parentTicketId: z
+        .number()
+        .optional()
+        .describe(
+          "Parent ticket id (Manage Ticket.parentTicketId). When set, the new ticket is created as a child of this ticket. Omit to leave it unparented. Same field cw_get_ticket returns.",
+        ),
     },
-    async ({ summary, boardId, companyId, contactId, statusId, priorityId, typeId, subTypeId, initialDescription }) => {
+    async ({ summary, boardId, companyId, contactId, statusId, priorityId, typeId, subTypeId, initialDescription, parentTicketId }) => {
       const body: Record<string, unknown> = { summary };
       if (boardId) body.board = { id: boardId };
       if (companyId) body.company = { id: companyId };
@@ -77,6 +84,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       if (typeId) body.type = { id: typeId };
       if (subTypeId) body.subType = { id: subTypeId };
       if (initialDescription) body.initialDescription = initialDescription;
+      if (parentTicketId !== undefined) body.parentTicketId = parentTicketId;
 
       const result = await client.post("/service/tickets", body);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -138,7 +146,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
     "cw_add_ticket_note",
     {
       description:
-        "Add a note to a service ticket. Use detailDescriptionFlag for a description note, internalAnalysisFlag for an internal-only note, or resolutionFlag for a resolution note. Defaults to a plain discussion note visible to the customer.",
+        "Add a note to a service ticket. Use detailDescriptionFlag for a discussion note, internalAnalysisFlag for an internal-only note, or resolutionFlag for a resolution note. Defaults to a plain discussion note. Email is off unless you set a flag: emailContactFlag emails the ticket contact, emailResourceFlag emails resources, and emailCcFlag emails the addresses in emailCc. Those fields are forwarded only when set — omitting them does not email anyone. Manage sends the mail when processNotifications is true; this tool sets that only if an email flag is true, or if you set processNotifications yourself. An explicit processNotifications false suppresses delivery even if a flag is true. Ticket-level recipient defaults are automaticEmailContactFlag, automaticEmailResourceFlag, automaticEmailCcFlag, and automaticEmailCc (see cw_get_ticket / cw_update_ticket).",
       inputSchema: {
         id: z.number().describe("Ticket ID"),
         text: z.string().describe("Note text content"),
@@ -146,19 +154,63 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         internalAnalysisFlag: z.boolean().optional().describe("Mark as internal analysis only (default: false)"),
         resolutionFlag: z.boolean().optional().describe("Mark as resolution note (default: false)"),
         customerUpdatedFlag: z.boolean().optional().describe("Flag that the customer was updated (default: false)"),
+        emailContactFlag: z
+          .boolean()
+          .optional()
+          .describe("Email the ticket contact. Omit to not email the contact. Never defaults to true."),
+        emailResourceFlag: z
+          .boolean()
+          .optional()
+          .describe("Email ticket resources. Omit to not email resources. Never defaults to true."),
+        emailCcFlag: z
+          .boolean()
+          .optional()
+          .describe("Email the addresses in emailCc. Omit to not email CC. Never defaults to true. emailCc alone does not send mail."),
+        emailCc: z
+          .string()
+          .optional()
+          .describe("CC email addresses. Sent only when provided. Does not email anyone unless emailCcFlag is true."),
+        processNotifications: z
+          .boolean()
+          .optional()
+          .describe("Manage ServiceNote processNotifications. Omit unless you need to force notification processing on or off. True sends using the ticket automaticEmail* settings. False suppresses delivery."),
       },
       // MCP Apps (SEP-1865): the ticket card's "Add note" round-trip target.
       _meta: TICKET_CARD_META,
     },
-    async ({ id, text, detailDescriptionFlag, internalAnalysisFlag, resolutionFlag, customerUpdatedFlag }) => {
-      const body: Record<string, unknown> = { text };
-      if (detailDescriptionFlag !== undefined) body.detailDescriptionFlag = detailDescriptionFlag;
-      if (internalAnalysisFlag !== undefined) body.internalAnalysisFlag = internalAnalysisFlag;
-      if (resolutionFlag !== undefined) body.resolutionFlag = resolutionFlag;
-      if (customerUpdatedFlag !== undefined) body.customerUpdatedFlag = customerUpdatedFlag;
+    async ({
+      id,
+      text,
+      detailDescriptionFlag,
+      internalAnalysisFlag,
+      resolutionFlag,
+      customerUpdatedFlag,
+      emailContactFlag,
+      emailResourceFlag,
+      emailCcFlag,
+      emailCc,
+      processNotifications,
+    }) => {
+      const body = buildTicketNoteBody({
+        text,
+        detailDescriptionFlag,
+        internalAnalysisFlag,
+        resolutionFlag,
+        customerUpdatedFlag,
+        emailContactFlag,
+        emailResourceFlag,
+        emailCcFlag,
+        emailCc,
+        processNotifications,
+      });
 
-      const result = await client.post(`/service/tickets/${id}/notes`, body);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      const result = await client.post<Record<string, unknown>>(`/service/tickets/${id}/notes`, body);
+      const mapped = mapCreatedNoteResponse(result, {
+        detailDescriptionFlag,
+        internalAnalysisFlag,
+        resolutionFlag,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(mapped, null, 2) }] };
     },
   );
 }

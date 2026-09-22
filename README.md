@@ -5,7 +5,7 @@
 
 **Let your AI assistant work directly with ConnectWise Manage.** Search tickets, log time, look up companies and contacts, manage projects — through natural conversation instead of clicking through the CWM interface.
 
-This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 51 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
+This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 53 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
 
 > **Part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Autotask](https://github.com/wyre-technology/autotask-mcp), [Datto RMM](https://github.com/wyre-technology/datto-rmm-mcp), [IT Glue](https://github.com/wyre-technology/itglue-mcp), [HaloPSA](https://github.com/wyre-technology/halopsa-mcp), [NinjaOne](https://github.com/wyre-technology/ninjaone-mcp), [Huntress](https://github.com/wyre-technology/huntress-mcp), and more. Built by MSPs, for MSPs.
 
@@ -79,10 +79,10 @@ needed.
 ### Tickets
 - `cw_search_tickets` — Search service tickets with conditions
 - `cw_get_ticket` — Get a ticket by ID
-- `cw_create_ticket` — Create a new service ticket
+- `cw_create_ticket` — Create a new service ticket. Optional `parentTicketId` (the same field `cw_get_ticket` returns) creates the ticket as a child of that parent.
 - `cw_update_ticket` — Update a ticket (JSON Patch)
 - `cw_get_ticket_notes` — Get all notes on a ticket (including child ticket notes)
-- `cw_add_ticket_note` — Add a note to a ticket (discussion, internal, or resolution)
+- `cw_add_ticket_note` — Add a note to a ticket (discussion, internal, or resolution). Optional `emailContactFlag`, `emailResourceFlag`, `emailCcFlag`, and `emailCc` control who is emailed. **Nothing is emailed unless one of those flags is set** (or you set `processNotifications`). Omitting them does not email the contact. The create response reports `internalFlag` / `externalFlag` from the note type that was stored, so an internal note is not also reported as external.
 
 ### Companies
 - `cw_search_companies` — Search companies
@@ -91,7 +91,7 @@ needed.
 - `cw_update_company` — Update a company (JSON Patch)
 
 ### Contacts
-- `cw_search_contacts` — Search contacts
+- `cw_search_contacts` — Search contacts. Filter contact type with `typeName`, `typeId`, or `childConditions` (for example `types/name = "Primary"`). `types` / `types/name` in `conditions` is invalid and returns 400 `ApiFindCondition` because type is a child collection; the tool moves those clauses to `childConditions`. Contacts have `firstName` and `lastName`, not `name`. String values use double quotes (`firstName = "Ada"`); single quotes are accepted and rewritten.
 - `cw_get_contact` — Get a contact by ID
 - `cw_create_contact` — Create a new contact
 
@@ -108,6 +108,8 @@ needed.
 - `cw_search_time_entries` — Search time entries
 - `cw_get_time_entry` — Get a time entry by ID
 - `cw_create_time_entry` — Create a new time entry
+- `cw_update_time_entry` — Correct a time entry (JSON Patch on `PATCH /time/entries/{id}`). Use this to fix `actualHours` when a metered agreement rounds to 0.25.
+- `cw_delete_time_entry` — Delete a time entry (`DELETE /time/entries/{id}`). Manage rejects deletes of entries that are already billed.
 
 ### Members
 - `cw_search_members` — Search members/technicians

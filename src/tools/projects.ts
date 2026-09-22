@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { mapCreatedNoteResponse } from "./note-payload.js";
 
 export function registerProjectTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -118,8 +119,13 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
       if (internalAnalysisFlag !== undefined) body.internalAnalysisFlag = internalAnalysisFlag;
       if (resolutionFlag !== undefined) body.resolutionFlag = resolutionFlag;
 
-      const result = await client.post(`/project/tickets/${id}/notes`, body);
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      const result = await client.post<Record<string, unknown>>(`/project/tickets/${id}/notes`, body);
+      const mapped = mapCreatedNoteResponse(result, {
+        detailDescriptionFlag,
+        internalAnalysisFlag,
+        resolutionFlag,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(mapped, null, 2) }] };
     },
   );
 

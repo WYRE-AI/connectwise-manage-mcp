@@ -159,4 +159,9 @@ export class CwManageClient {
   async patch<T = unknown>(path: string, body: unknown): Promise<T> {
     return this.request<T>("PATCH", path, { body });
   }
+
+  /** DELETE helper. Manage returns 204 No Content on success. */
+  async delete<T = unknown>(path: string): Promise<T> {
+    return this.request<T>("DELETE", path);
+  }
 }
