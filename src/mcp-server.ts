@@ -29,6 +29,7 @@ import { registerConfigurationTools } from "./tools/configurations.js";
 import { registerServiceTools } from "./tools/service.js";
 import { registerActivityTools } from "./tools/activities.js";
 import { registerCatalogTools } from "./tools/catalog.js";
+import { registerProcurementTools } from "./tools/procurement.js";
 import { registerHealthTools } from "./tools/health.js";
 import { registerAgreementTools } from "./tools/agreements.js";
 import { registerOpportunityTools } from "./tools/opportunities.js";
@@ -164,6 +165,7 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
   registerServiceTools(server, client);
   registerActivityTools(server, client);
   registerCatalogTools(server, client);
+  registerProcurementTools(server, client);
   registerHealthTools(server, client);
   registerAgreementTools(server, client);
   registerOpportunityTools(server, client);
