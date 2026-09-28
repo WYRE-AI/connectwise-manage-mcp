@@ -133,6 +133,8 @@ needed.
 - `cw_search_agreements` — Search agreements
 - `cw_get_agreement` — Get an agreement by ID
 - `cw_get_agreement_additions` — Get additions (line items) on an agreement
+- `cw_update_agreement_addition` — Update an addition with JSON Patch (quantity, effectiveDate, cancelledDate, billCustomer, etc.); supports a `dryRun` preview that makes no write
+- `cw_create_agreement_addition` — Create a new addition on an agreement
 
 ### Invoices
 - `cw_search_invoices` — Search invoices
