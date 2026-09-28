@@ -101,6 +101,25 @@ describe("agreement addition tools", () => {
     expect(JSON.parse(init.body)).toEqual([{ op: "replace", path: "quantity", value: 12 }]);
   });
 
+  it("rejects an add/replace operation missing value (RFC 6902 requires it)", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const body = await mcp("tools/call", {
+      name: "cw_update_agreement_addition",
+      arguments: {
+        agreementId: 4,
+        additionId: 9,
+        operations: [{ op: "replace", path: "quantity" }],
+      },
+    });
+
+    const result = body.result as { content?: { text?: string }[]; isError?: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text).toMatch(/value is required/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("dryRun fetches the current addition, previews the patch, and makes no write", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       fakeResponse({ id: 9, quantity: 5, billCustomer: "Billable" }),

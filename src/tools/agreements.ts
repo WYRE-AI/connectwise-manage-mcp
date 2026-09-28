@@ -2,11 +2,43 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 
-const additionPatchOperation = z.object({
-  op: z.enum(["replace", "add", "remove"]).describe("Patch operation"),
-  path: z.string().describe("Field path (e.g. 'quantity', 'billCustomer', 'cancelledDate')"),
-  value: z.unknown().optional().describe("New value"),
+// RFC 6902 requires a "value" member on add/replace but forbids relying on it
+// for remove. A flat z.object with an optional value let a caller omit it on
+// add/replace: applyPatchLocally would silently drop the field (undefined
+// isn't serialized), producing a preview that looks fine while the live
+// PATCH request goes out missing a member Manage requires. The discriminated
+// union makes that combination unrepresentable instead of just undocumented.
+//
+// z.unknown() alone accepts `undefined` even when not marked .optional() —
+// Zod treats an absent key the same as a present key valued `undefined` for
+// an unknown/any field, so plain `value: z.unknown()` would NOT actually
+// reject a missing value (confirmed by hand: it let `{ op: "replace", path:
+// "quantity" }` straight through to the live fetch call, which then crashed
+// on a mocked-undefined response instead of failing schema validation). The
+// refine makes "present and not undefined" an explicit condition.
+const requiredValue = z.unknown().refine((v) => v !== undefined, {
+  message: "value is required for add/replace operations (RFC 6902)",
 });
+
+const additionPatchOperation = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("add"),
+    path: z.string().describe("Field path (e.g. 'quantity', 'billCustomer', 'cancelledDate')"),
+    value: requiredValue.describe("New value"),
+  }),
+  z.object({
+    op: z.literal("replace"),
+    path: z.string().describe("Field path (e.g. 'quantity', 'billCustomer', 'cancelledDate')"),
+    value: requiredValue.describe("New value"),
+  }),
+  z.object({
+    op: z.literal("remove"),
+    path: z.string().describe("Field path (e.g. 'quantity', 'billCustomer', 'cancelledDate')"),
+    value: z.unknown().optional().describe("Unused for remove"),
+  }),
+]);
+
+type AdditionPatchOperation = z.infer<typeof additionPatchOperation>;
 
 /**
  * Applies flat-field JSON Patch operations to a record in memory, matching
@@ -16,7 +48,7 @@ const additionPatchOperation = z.object({
  */
 export function applyPatchLocally(
   record: Record<string, unknown>,
-  operations: { op: "replace" | "add" | "remove"; path: string; value?: unknown }[],
+  operations: AdditionPatchOperation[],
 ): Record<string, unknown> {
   const patched = { ...record };
   for (const { op, path, value } of operations) {
