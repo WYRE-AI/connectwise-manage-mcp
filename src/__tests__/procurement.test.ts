@@ -381,6 +381,22 @@ describe("cw_get_inventory_on_hand", () => {
     expect(pages).toEqual([1, 2]);
   });
 
+  it("rejects rather than totalling a truncated scan when the page cap is hit", async () => {
+    const { client, call } = setup();
+    const fullPage = Array.from({ length: 1000 }, () => ({ onHand: 1 }));
+
+    client.getResponder = (path) => {
+      if (path === "/procurement/warehouseBins") {
+        return [{ id: 10, name: "BIN-A", warehouse: { id: 1, name: "Main" } }];
+      }
+      return path.includes("inventoryOnHand") ? fullPage : [];
+    };
+
+    await expect(
+      call("cw_get_inventory_on_hand", { warehouseId: 1, includeCosts: false }),
+    ).rejects.toThrow(/Pagination limit of 100 pages/);
+  });
+
   it("excludes inactive bins by default and includes them on request", async () => {
     const { client, call } = setup();
     client.getResponder = () => [];

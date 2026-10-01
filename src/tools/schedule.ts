@@ -17,6 +17,10 @@ import { CwManageClient } from "../api-client.js";
 const UTC_NOTE =
   "ConnectWise interprets dateStart and dateEnd as UTC (trailing 'Z'). Perth (AWST) is UTC+8 with no daylight saving, so 10:00 Perth is 02:00Z and a Perth time before 08:00 lands on the previous UTC date.";
 
+/**
+ * Register the schedule entry tools: search, list types and statuses, create,
+ * and update via JSON Patch. There is deliberately no delete tool.
+ */
 export function registerScheduleTools(server: McpServer, client: CwManageClient) {
   server.tool(
     "cw_search_schedule_entries",
@@ -228,7 +232,14 @@ export function registerScheduleTools(server: McpServer, client: CwManageClient)
               .describe(
                 "JSON path (e.g. 'dateStart', 'dateEnd', 'status/id', 'member/id', 'doneFlag')",
               ),
-            value: z.unknown().optional().describe("New value"),
+            value: z
+              .unknown()
+              .optional()
+              .describe("New value. Required for 'add' and 'replace', ignored for 'remove'"),
+          })
+          .refine((operation) => operation.op === "remove" || operation.value !== undefined, {
+            message: "value is required for 'add' and 'replace' operations",
+            path: ["value"],
           }),
         )
         .describe("Array of JSON Patch operations"),

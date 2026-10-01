@@ -78,7 +78,9 @@ interface CatalogItemRecord {
  *
  * ConnectWise returns a bare array and no total count, so the only reliable
  * stop condition is a short page. maxPages guards against an endpoint that
- * ignores paging and hands back the same page forever.
+ * ignores paging and hands back the same page forever. Hitting it throws
+ * rather than returning a truncated list, because callers total the rows and
+ * a silent partial result would give wrong totals.
  */
 async function fetchAllPages<T>(
   client: CwManageClient,
@@ -94,6 +96,11 @@ async function fetchAllPages<T>(
     if (!Array.isArray(batch) || batch.length === 0) break;
     all.push(...batch);
     if (batch.length < pageSize) break;
+    if (page === maxPages) {
+      throw new Error(
+        `Pagination limit of ${maxPages} pages reached before ${path} ended. Narrow the request rather than accept a partial result.`,
+      );
+    }
   }
 
   return all;
