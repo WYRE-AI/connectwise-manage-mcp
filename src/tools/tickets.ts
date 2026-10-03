@@ -49,8 +49,14 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       // MCP Apps: attach the normalized card payload the ui:// ticket card
       // renders from. Best-effort — a null card just means no UI surface.
       const card = await buildTicketCard(result, client);
-      const payload = card ? { ...result, _card: card } : result;
-      return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+      const structuredContent = card ? { ...result, _card: card } : result;
+      const summary = card
+        ? `Ticket #${card.id}: ${card.summary} (${card.priority ?? "no priority"}, ${card.status ?? "no status"})`
+        : `Ticket #${id}`;
+      return {
+        content: [{ type: "text", text: summary }],
+        structuredContent,
+      };
     },
   );
 
