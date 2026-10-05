@@ -41,6 +41,54 @@ const additionPatchOperation = z.discriminatedUnion("op", [
 type AdditionPatchOperation = z.infer<typeof additionPatchOperation>;
 
 /**
+ * Manage's invoice resource has no line-item child. The OpenAPI (as generated
+ * into the pyconnectwise client) only nests `payments` and `pdf` under
+ * `/finance/invoices/{id}`. Product, time, and expense lines that have been
+ * billed onto an invoice each carry an `invoice` reference on their own
+ * collection, so a spend review filters those collections with
+ * `invoice/id = {id}` rather than calling a path that does not exist.
+ *
+ * Extra caller conditions are ANDed inside parentheses so an `or` in the
+ * extra clause cannot escape the invoice scope.
+ */
+export function invoiceScopedConditions(invoiceId: number, conditions?: string): string {
+  const scoped = `invoice/id = ${invoiceId}`;
+  const extra = conditions?.trim();
+  if (!extra) return scoped;
+  return `${scoped} and (${extra})`;
+}
+
+function invoiceLineListArgs() {
+  return {
+    invoiceId: z.number().describe("Invoice ID"),
+    conditions: z
+      .string()
+      .optional()
+      .describe(
+        'Extra ConnectWise conditions, ANDed with the invoice scope. String literals use double quotes (e.g. productClass = "Agreement").',
+      ),
+    page: z.number().optional().describe("Page number (default: 1)"),
+    pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
+    orderBy: z.string().optional().describe("Field to order by"),
+  };
+}
+
+function invoiceLineQuery(
+  invoiceId: number,
+  page: number | undefined,
+  pageSize: number | undefined,
+  orderBy: string | undefined,
+  conditions: string | undefined,
+): Record<string, string | number | undefined> {
+  return {
+    conditions: invoiceScopedConditions(invoiceId, conditions),
+    page: page ?? 1,
+    pageSize: pageSize ?? 25,
+    orderBy,
+  };
+}
+
+/**
  * Applies flat-field JSON Patch operations to a record in memory, matching
  * the same simple-path convention (top-level field names, not nested JSON
  * Pointers) that cw_update_time_entry documents. Used for cw_update_agreement_addition's
@@ -195,7 +243,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
 
   server.tool(
     "cw_search_invoices",
-    "Search invoices in ConnectWise Manage.",
+    "Search invoices in ConnectWise Manage. Returns headers and totals only (productTotal, serviceTotal, expenseTotal, agreementAmount), not line items. For a spend review, take each id from here and call cw_get_invoice_products, cw_get_invoice_time_entries, and cw_get_invoice_expenses. Requires Finance → Invoicing → Inquire.",
     {
       conditions: z.string().optional().describe("ConnectWise conditions query string (e.g. \"company/name = 'Acme'\")"),
       page: z.number().optional().describe("Page number (default: 1)"),
@@ -215,12 +263,51 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
 
   server.tool(
     "cw_get_invoice",
-    "Get a specific invoice by ID.",
+    "Get a specific invoice by ID (GET /finance/invoices/{id}). Returns the header and totals: productTotal, serviceTotal, expenseTotal, agreementAmount, subtotal, and total. Manage does not nest products, time, or expenses on this resource (only payments and a PDF). Line detail is cw_get_invoice_products, cw_get_invoice_time_entries, and cw_get_invoice_expenses. Requires Finance → Invoicing → Inquire.",
     {
       id: z.number().describe("Invoice ID"),
     },
     async ({ id }) => {
       const result = await client.get(`/finance/invoices/${id}`);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "cw_get_invoice_products",
+    "List procurement product lines charged to an invoice (GET /procurement/products with conditions invoice/id = {invoiceId}). There is no /finance/invoices/{id}/products child. Each ProductItem includes catalogItem, description, quantity, price, cost, billableOption, productClass (Agreement, Bundle, Inventory, NonInventory, or Service), agreement, and agreementAmount. Agreement-related product charges are the lines whose productClass is Agreement or whose agreement / agreementAmount is set — this tool does not roll them up. Page through results (default 25, max 1000); orderBy sequenceNumber matches invoice sequence. Requires Inquire on procurement products, separate from Finance → Invoicing.",
+    invoiceLineListArgs(),
+    async ({ invoiceId, conditions, page, pageSize, orderBy }) => {
+      const result = await client.get(
+        "/procurement/products",
+        invoiceLineQuery(invoiceId, page, pageSize, orderBy, conditions),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "cw_get_invoice_time_entries",
+    "List time entries billed on an invoice (GET /time/entries with conditions invoice/id = {invoiceId}). There is no invoice time-entry child. Each entry includes actualHours, hoursBilled, invoiceHours, hourlyRate, billableOption, status (including Billed and BilledAgreement), agreement, agreementAmount, and agreementHours. Agreement-covered time stays on these records; this tool does not merge it into the invoice header. Page through results (default 25, max 1000). Requires Inquire on time entries, separate from Finance → Invoicing.",
+    invoiceLineListArgs(),
+    async ({ invoiceId, conditions, page, pageSize, orderBy }) => {
+      const result = await client.get(
+        "/time/entries",
+        invoiceLineQuery(invoiceId, page, pageSize, orderBy, conditions),
+      );
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "cw_get_invoice_expenses",
+    "List expense entries billed on an invoice (GET /expense/entries with conditions invoice/id = {invoiceId}). There is no invoice expense child. Each entry includes type, amount, billAmount, invoiceAmount, billableOption, status, agreement, and agreementAmount. Compare invoiceAmount to the header expenseTotal from cw_get_invoice; this tool does not recompute that total. Page through results (default 25, max 1000). Requires Inquire on expense entries, separate from Finance → Invoicing.",
+    invoiceLineListArgs(),
+    async ({ invoiceId, conditions, page, pageSize, orderBy }) => {
+      const result = await client.get(
+        "/expense/entries",
+        invoiceLineQuery(invoiceId, page, pageSize, orderBy, conditions),
+      );
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
