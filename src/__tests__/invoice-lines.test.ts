@@ -99,7 +99,7 @@ describe("invoice line tools", () => {
     expect(byName.cw_get_invoice_expenses).toBeDefined();
     expect(byName.cw_get_invoice_products.description).toMatch(/\/procurement\/products/);
     expect(byName.cw_get_invoice_products.description).toMatch(/no \/finance\/invoices/);
-    expect(tools).toHaveLength(58);
+    expect(tools).toHaveLength(60);
   });
 
   it("GETs procurement products for the invoice with default paging", async () => {
