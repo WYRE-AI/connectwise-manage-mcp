@@ -5,7 +5,7 @@
 
 **Let your AI assistant work directly with ConnectWise Manage.** Search tickets, log time, look up companies and contacts, manage projects — through natural conversation instead of clicking through the CWM interface.
 
-This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 53 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
+This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 57 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
 
 > **Part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Autotask](https://github.com/wyre-technology/autotask-mcp), [Datto RMM](https://github.com/wyre-technology/datto-rmm-mcp), [IT Glue](https://github.com/wyre-technology/itglue-mcp), [HaloPSA](https://github.com/wyre-technology/halopsa-mcp), [NinjaOne](https://github.com/wyre-technology/ninjaone-mcp), [Huntress](https://github.com/wyre-technology/huntress-mcp), and more. Built by MSPs, for MSPs.
 
@@ -94,6 +94,8 @@ needed.
 - `cw_search_contacts` — Search contacts. Filter contact type with `typeName`, `typeId`, or `childConditions` (for example `types/name = "Primary"`). `types` / `types/name` in `conditions` is invalid and returns 400 `ApiFindCondition` because type is a child collection; the tool moves those clauses to `childConditions`. Contacts have `firstName` and `lastName`, not `name`. String values use double quotes (`firstName = "Ada"`); single quotes are accepted and rewritten.
 - `cw_get_contact` — Get a contact by ID
 - `cw_create_contact` — Create a new contact
+- `cw_update_contact` — Update a contact (JSON Patch on `PATCH /company/contacts/{id}`). Paths include `firstName`, `lastName`, `title`, `inactiveFlag`, `site`, `communicationItems` (email and phone), and `customFields`. Contact types are not on this patch.
+- `cw_update_contact_types` — Add or remove a contact type such as "Decision Maker" (`POST` / `DELETE /company/contacts/{id}/typeAssociations`). Adding a type the contact already has does not create a duplicate.
 
 ### Projects
 - `cw_search_projects` — Search projects
