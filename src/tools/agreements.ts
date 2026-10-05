@@ -86,7 +86,7 @@ function invoiceLineListArgs() {
         'Extra ConnectWise conditions, ANDed with the invoice scope. String literals use double quotes (e.g. productClass = "Agreement").',
       ),
     page: z.number().optional().describe("Page number (default: 1)"),
-    pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
+    pageSize: z.number().int().min(1).max(1000).optional().describe("Results per page (default: 25, max: 1000)"),
     orderBy: z.string().optional().describe("Field to order by"),
   };
 }

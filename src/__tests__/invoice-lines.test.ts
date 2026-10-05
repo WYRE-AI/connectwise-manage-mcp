@@ -160,6 +160,21 @@ describe("invoice line tools", () => {
     });
   });
 
+  it("rejects a pageSize outside 1-1000 before calling Manage", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (const pageSize of [0, 1001, 2.5]) {
+      const body = await mcp("tools/call", {
+        name: "cw_get_invoice_products",
+        arguments: { invoiceId: 42, pageSize },
+      });
+      const isError = body.error !== undefined || (body.result as { isError?: boolean } | undefined)?.isError;
+      expect(isError).toBe(true);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("GETs time entries billed on the invoice", async () => {
     const entries = [
       {
