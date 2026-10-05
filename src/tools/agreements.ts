@@ -49,13 +49,31 @@ type AdditionPatchOperation = z.infer<typeof additionPatchOperation>;
  * `invoice/id = {id}` rather than calling a path that does not exist.
  *
  * Extra caller conditions are ANDed inside parentheses so an `or` in the
- * extra clause cannot escape the invoice scope.
+ * extra clause cannot escape the invoice scope. The wrapper only holds if the
+ * extra clause cannot close it early (`x) or (y`), so parentheses outside
+ * double-quoted literals must be balanced and never close before they open.
  */
 export function invoiceScopedConditions(invoiceId: number, conditions?: string): string {
   const scoped = `invoice/id = ${invoiceId}`;
   const extra = conditions?.trim();
   if (!extra) return scoped;
+  assertGroupedConditions(extra);
   return `${scoped} and (${extra})`;
+}
+
+function assertGroupedConditions(conditions: string): void {
+  let depth = 0;
+  let inQuote = false;
+  for (const ch of conditions) {
+    if (ch === '"') inQuote = !inQuote;
+    else if (inQuote) continue;
+    else if (ch === "(") depth++;
+    else if (ch === ")" && --depth < 0) {
+      throw new Error("conditions closes a parenthesis it did not open");
+    }
+  }
+  if (inQuote) throw new Error("conditions has an unterminated string literal");
+  if (depth !== 0) throw new Error("conditions has unbalanced parentheses");
 }
 
 function invoiceLineListArgs() {

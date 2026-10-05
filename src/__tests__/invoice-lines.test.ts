@@ -72,6 +72,20 @@ describe("invoiceScopedConditions", () => {
       'invoice/id = 42 and (productClass = "Agreement" or billableOption = "Billable")',
     );
   });
+
+  it("allows balanced groups and parentheses inside string literals", () => {
+    expect(invoiceScopedConditions(42, '(a = 1 or b = 2) and description = "x) or (y"')).toBe(
+      'invoice/id = 42 and ((a = 1 or b = 2) and description = "x) or (y")',
+    );
+  });
+
+  it("rejects extra conditions that could escape the invoice scope", () => {
+    expect(() => invoiceScopedConditions(42, "invoice/id != 42) or (invoice/id != 42")).toThrow(
+      /did not open/,
+    );
+    expect(() => invoiceScopedConditions(42, "(a = 1")).toThrow(/unbalanced/);
+    expect(() => invoiceScopedConditions(42, 'a = "x')).toThrow(/unterminated/);
+  });
 });
 
 describe("invoice line tools", () => {
