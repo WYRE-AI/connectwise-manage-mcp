@@ -112,7 +112,7 @@ describe("cw_update_contact", () => {
         "cw_update_agreement_addition",
       ]),
     );
-    expect(names).toHaveLength(57);
+    expect(names).toHaveLength(59);
   });
 
   it("patches name, title, site, inactive flag, communication items, and custom fields", async () => {
