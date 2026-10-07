@@ -81,4 +81,39 @@ describe("cw_update_schedule_entry schema", () => {
     expect(requiredByOp.replace).toEqual(["op", "path", "value"]);
     expect(requiredByOp.remove).toEqual(["op", "path"]);
   });
+
+  it("marks search and list read-only, create additive, and update as a write", async () => {
+    const response = await worker.fetch(new Request("http://worker.local/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        "X-CW-Company-Id": "acme",
+        "X-CW-Public-Key": "pub",
+        "X-CW-Private-Key": "priv",
+        "X-CW-Client-Id": "client-guid",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    }), { AUTH_MODE: "gateway" });
+    const body = await response.json() as {
+      result: { tools: { name: string; annotations?: {
+        readOnlyHint?: boolean;
+        destructiveHint?: boolean;
+      } }[] };
+    };
+    const annotations = Object.fromEntries(
+      body.result.tools.map((tool) => [tool.name, tool.annotations]),
+    );
+    expect(annotations.cw_search_schedule_entries).toMatchObject({ readOnlyHint: true });
+    expect(annotations.cw_list_schedule_types).toMatchObject({ readOnlyHint: true });
+    expect(annotations.cw_list_schedule_statuses).toMatchObject({ readOnlyHint: true });
+    expect(annotations.cw_create_schedule_entry).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+    });
+    expect(annotations.cw_update_schedule_entry).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+    });
+  });
 });

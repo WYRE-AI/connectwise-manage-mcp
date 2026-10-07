@@ -17,6 +17,12 @@ import { CwManageClient } from "../api-client.js";
 const UTC_NOTE =
   "ConnectWise interprets dateStart and dateEnd as UTC (trailing 'Z'). Perth (AWST) is UTC+8 with no daylight saving, so 10:00 Perth is 02:00Z and a Perth time before 08:00 lands on the previous UTC date.";
 
+const SCHEDULE_READ_ONLY = { readOnlyHint: true };
+/** Creating a booking only adds an entry. */
+const SCHEDULE_ADDITIVE_WRITE = { readOnlyHint: false, destructiveHint: false };
+/** Updating a booking overwrites fields on an existing entry. */
+const SCHEDULE_WRITE = { readOnlyHint: false, destructiveHint: true };
+
 // Same rule as cw_update_agreement_addition and cw_update_contact: z.unknown()
 // accepts a missing key, so add/replace must explicitly require a value.
 // RFC 6902 forbids a patch that omits it. Remove may omit value.
@@ -75,6 +81,7 @@ export function registerScheduleTools(server: McpServer, client: CwManageClient)
         .optional()
         .describe("Field to order by (e.g. 'dateStart asc')"),
     },
+    SCHEDULE_READ_ONLY,
     async ({ conditions, page, pageSize, orderBy }) => {
       const result = await client.get("/schedule/entries", {
         conditions,
@@ -94,6 +101,7 @@ export function registerScheduleTools(server: McpServer, client: CwManageClient)
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
     },
+    SCHEDULE_READ_ONLY,
     async ({ conditions, page, pageSize }) => {
       const result = await client.get("/schedule/types", {
         conditions,
@@ -112,6 +120,7 @@ export function registerScheduleTools(server: McpServer, client: CwManageClient)
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
     },
+    SCHEDULE_READ_ONLY,
     async ({ conditions, page, pageSize }) => {
       const result = await client.get("/schedule/statuses", {
         conditions,
@@ -207,6 +216,7 @@ export function registerScheduleTools(server: McpServer, client: CwManageClient)
           "Allow the booking even where it overlaps an existing entry for the member (default: false)",
         ),
     },
+    SCHEDULE_ADDITIVE_WRITE,
     async ({
       objectId,
       typeId,
@@ -257,6 +267,7 @@ export function registerScheduleTools(server: McpServer, client: CwManageClient)
       id: z.number().describe("Schedule entry ID"),
       operations: z.array(schedulePatchOperation).describe("Array of JSON Patch operations"),
     },
+    SCHEDULE_WRITE,
     async ({ id, operations }) => {
       const result = await client.patch(`/schedule/entries/${id}`, operations);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

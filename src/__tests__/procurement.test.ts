@@ -101,6 +101,15 @@ describe("procurement tool registration", () => {
     expect(description).toMatch(/not reversible/i);
     expect(description).toMatch(/counter/i);
   });
+
+  it("tells the caller an open adjustment stays open until the ConnectWise UI deletes it", () => {
+    const { tools } = setup();
+    const description = tools.get("cw_create_adjustment")!.description;
+    expect(description).toMatch(/ConnectWise UI/);
+    expect(description).toMatch(/no delete tool/);
+    expect(description).toMatch(/intends to post stock/);
+    expect(description).not.toMatch(/safe to leave/i);
+  });
 });
 
 describe("cw_list_warehouses", () => {
@@ -649,15 +658,38 @@ describe("cw_get_adjustment", () => {
 });
 
 describe("cw_close_adjustment", () => {
-  it("patches closedFlag to true", async () => {
+  it("patches closedFlag to true when the adjustment is open and has lines", async () => {
     const { client, call } = setup();
+    client.getResponder = (path) => {
+      if (path === "/procurement/adjustments/77") return { id: 77, closedFlag: false };
+      if (path === "/procurement/adjustments/77/details") return [{ id: 1, quantityAdjusted: -7 }];
+      return [];
+    };
 
     await call("cw_close_adjustment", { id: 77 });
 
-    expect(client.calls[0]).toEqual({
+    expect(client.calls.at(-1)).toEqual({
       method: "PATCH",
       path: "/procurement/adjustments/77",
       body: [{ op: "replace", path: "closedFlag", value: true }],
     });
+  });
+
+  it("rejects an adjustment that is already closed and does not patch", async () => {
+    const { client, call } = setup();
+    client.getResponder = (path) =>
+      path === "/procurement/adjustments/77" ? { id: 77, closedFlag: true } : [];
+
+    await expect(call("cw_close_adjustment", { id: 77 })).rejects.toThrow(/already closed/);
+    expect(client.calls.some((recorded) => recorded.method === "PATCH")).toBe(false);
+  });
+
+  it("rejects an adjustment with no detail lines and does not patch", async () => {
+    const { client, call } = setup();
+    client.getResponder = (path) =>
+      path === "/procurement/adjustments/77" ? { id: 77, closedFlag: false } : [];
+
+    await expect(call("cw_close_adjustment", { id: 77 })).rejects.toThrow(/no detail lines/);
+    expect(client.calls.some((recorded) => recorded.method === "PATCH")).toBe(false);
   });
 });
