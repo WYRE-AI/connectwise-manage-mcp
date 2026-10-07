@@ -32,7 +32,11 @@ import { CwManageClient } from "../api-client.js";
 /** ConnectWise caps pageSize at 1000 on every paged endpoint. */
 const MAX_PAGE_SIZE = 1000;
 
-/** Bins are scanned concurrently, kept low so a wide scan does not trip API rate limits. */
+/**
+ * Bins are scanned concurrently, kept low so a wide scan does not trip API rate limits.
+ * Concurrent requests are safe when TLS verification is relaxed: CwManageClient scopes
+ * rejectUnauthorized to its own undici Agent and never writes NODE_TLS_REJECT_UNAUTHORIZED.
+ */
 const BIN_SCAN_CONCURRENCY = 4;
 
 /** Catalog item lookups are chunked so the conditions string stays a sane length. */
@@ -141,6 +145,13 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/**
+ * Register the procurement inventory tools (warehouses, bins, on-hand scan,
+ * and inventory adjustments) on the MCP server.
+ *
+ * @param server MCP server to register tools on.
+ * @param client ConnectWise Manage client used by the tools.
+ */
 export function registerProcurementTools(server: McpServer, client: CwManageClient) {
   // -------------------------------------------------------------------------
   // Warehouse structure

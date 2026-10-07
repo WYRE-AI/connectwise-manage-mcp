@@ -110,9 +110,14 @@ describe("cw_update_contact", () => {
         "cw_update_contact",
         "cw_update_contact_types",
         "cw_update_agreement_addition",
+        "cw_search_schedule_entries",
+        "cw_create_schedule_entry",
+        "cw_list_warehouses",
+        "cw_get_inventory_on_hand",
+        "cw_close_adjustment",
       ]),
     );
-    expect(names).toHaveLength(57);
+    expect(names).toHaveLength(72);
   });
 
   it("patches name, title, site, inactive flag, communication items, and custom fields", async () => {

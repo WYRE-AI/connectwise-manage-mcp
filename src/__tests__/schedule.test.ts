@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CwManageClient } from "../api-client.js";
 import { registerScheduleTools } from "../tools/schedule.js";
+import worker from "../worker.js";
 
 function updateSchema() {
   let shape: z.ZodRawShape | undefined;
@@ -46,5 +47,38 @@ describe("cw_update_schedule_entry schema", () => {
   it("accepts remove without a value", () => {
     const result = schema.safeParse({ id: 1, operations: [{ op: "remove", path: "notes" }] });
     expect(result.success).toBe(true);
+  });
+
+  it("advertises value as required for add and replace only", async () => {
+    const response = await worker.fetch(new Request("http://worker.local/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        "X-CW-Company-Id": "acme",
+        "X-CW-Public-Key": "pub",
+        "X-CW-Private-Key": "priv",
+        "X-CW-Client-Id": "client-guid",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    }), { AUTH_MODE: "gateway" });
+    const body = await response.json() as {
+      result: { tools: { name: string; inputSchema: {
+        properties: { operations: { items: { oneOf: {
+          properties: { op: { const: string } };
+          required: string[];
+        }[] } } };
+      } }[] };
+    };
+    const tool = body.result.tools.find((entry) => entry.name === "cw_update_schedule_entry");
+    const requiredByOp = Object.fromEntries(
+      tool!.inputSchema.properties.operations.items.oneOf.map((variant) => [
+        variant.properties.op.const,
+        variant.required,
+      ]),
+    );
+    expect(requiredByOp.add).toEqual(["op", "path", "value"]);
+    expect(requiredByOp.replace).toEqual(["op", "path", "value"]);
+    expect(requiredByOp.remove).toEqual(["op", "path"]);
   });
 });

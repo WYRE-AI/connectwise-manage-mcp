@@ -17,9 +17,41 @@ import { CwManageClient } from "../api-client.js";
 const UTC_NOTE =
   "ConnectWise interprets dateStart and dateEnd as UTC (trailing 'Z'). Perth (AWST) is UTC+8 with no daylight saving, so 10:00 Perth is 02:00Z and a Perth time before 08:00 lands on the previous UTC date.";
 
+// Same rule as cw_update_agreement_addition and cw_update_contact: z.unknown()
+// accepts a missing key, so add/replace must explicitly require a value.
+// RFC 6902 forbids a patch that omits it. Remove may omit value.
+const requiredScheduleValue = z.unknown().refine((value) => value !== undefined, {
+  message: "value is required for add/replace operations (RFC 6902)",
+});
+
+const schedulePath = z
+  .string()
+  .describe("JSON path (e.g. 'dateStart', 'dateEnd', 'status/id', 'member/id', 'doneFlag')");
+
+const schedulePatchOperation = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("add"),
+    path: schedulePath,
+    value: requiredScheduleValue.describe("New value"),
+  }),
+  z.object({
+    op: z.literal("replace"),
+    path: schedulePath,
+    value: requiredScheduleValue.describe("New value"),
+  }),
+  z.object({
+    op: z.literal("remove"),
+    path: schedulePath,
+    value: z.unknown().optional().describe("Unused for remove"),
+  }),
+]);
+
 /**
- * Register the schedule entry tools: search, list types and statuses, create,
- * and update via JSON Patch. There is deliberately no delete tool.
+ * Register the schedule entry tools (search, list types and statuses, create,
+ * and JSON Patch update) on the MCP server. There is deliberately no delete tool.
+ *
+ * @param server MCP server to register tools on.
+ * @param client ConnectWise Manage client used by the tools.
  */
 export function registerScheduleTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -223,26 +255,7 @@ export function registerScheduleTools(server: McpServer, client: CwManageClient)
       UTC_NOTE,
     {
       id: z.number().describe("Schedule entry ID"),
-      operations: z
-        .array(
-          z.object({
-            op: z.enum(["replace", "add", "remove"]).describe("Patch operation"),
-            path: z
-              .string()
-              .describe(
-                "JSON path (e.g. 'dateStart', 'dateEnd', 'status/id', 'member/id', 'doneFlag')",
-              ),
-            value: z
-              .unknown()
-              .optional()
-              .describe("New value. Required for 'add' and 'replace', ignored for 'remove'"),
-          })
-          .refine((operation) => operation.op === "remove" || operation.value !== undefined, {
-            message: "value is required for 'add' and 'replace' operations",
-            path: ["value"],
-          }),
-        )
-        .describe("Array of JSON Patch operations"),
+      operations: z.array(schedulePatchOperation).describe("Array of JSON Patch operations"),
     },
     async ({ id, operations }) => {
       const result = await client.patch(`/schedule/entries/${id}`, operations);
