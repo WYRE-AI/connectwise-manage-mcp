@@ -5,7 +5,7 @@
 
 **Let your AI assistant work directly with ConnectWise Manage.** Search tickets, log time, look up companies and contacts, manage projects — through natural conversation instead of clicking through the CWM interface.
 
-This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 57 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
+This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 60 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
 
 > **Part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Autotask](https://github.com/wyre-technology/autotask-mcp), [Datto RMM](https://github.com/wyre-technology/datto-rmm-mcp), [IT Glue](https://github.com/wyre-technology/itglue-mcp), [HaloPSA](https://github.com/wyre-technology/halopsa-mcp), [NinjaOne](https://github.com/wyre-technology/ninjaone-mcp), [Huntress](https://github.com/wyre-technology/huntress-mcp), and more. Built by MSPs, for MSPs.
 
@@ -141,8 +141,27 @@ needed.
 - `cw_create_agreement_addition` — Create a new addition on an agreement
 
 ### Invoices
-- `cw_search_invoices` — Search invoices
-- `cw_get_invoice` — Get an invoice by ID
+- `cw_search_invoices` — Search invoice headers and totals
+- `cw_get_invoice` — Get one invoice header by ID (totals only)
+- `cw_get_invoice_products` — Product lines charged to an invoice (`GET /procurement/products?conditions=invoice/id={id}`), including agreement product charges
+- `cw_get_invoice_time_entries` — Time entries billed on an invoice (`GET /time/entries?conditions=invoice/id={id}`)
+- `cw_get_invoice_expenses` — Expense entries billed on an invoice (`GET /expense/entries?conditions=invoice/id={id}`)
+
+#### Spend reviews
+
+`cw_search_invoices` and `cw_get_invoice` return the invoice header. The totals you reconcile against are `productTotal`, `serviceTotal` (time), `expenseTotal`, and `agreementAmount`, plus `subtotal` and `total`. The header also carries `company`, `date`, `invoiceNumber`, `type` (`Agreement`, `Standard`, and the other invoice types), and, when the invoice bills an agreement, an `agreement` reference. Those two tools do not return lines.
+
+Manage's invoice resource has no line-item child. The REST API nests only `payments` and a PDF under `/finance/invoices/{id}`. There is no `/finance/invoices/{id}/products`. Product, time, and expense lines that have been billed onto an invoice each carry an `invoice` reference on their own collection. The line tools are read-only filters on those collections. They return the records Manage returns. They do not sum, join, or rebuild an invoice.
+
+The API member needs **Finance → Invoicing → Inquire = All** for the header tools. The line tools are separate security modules: Inquire on procurement products, time entries, and expense entries. Invoicing Inquire does not include them.
+
+1. Find the invoices. `cw_search_invoices` with a conditions string such as `company/name = "Acme" and date >= [2026-01-01]`. Page with `page` / `pageSize` (default 25, max 1000). Note each invoice `id`.
+2. Read the header. `cw_get_invoice` with that `id`. Record `productTotal`, `serviceTotal`, `expenseTotal`, and `agreementAmount`.
+3. Products. `cw_get_invoice_products` with the same `invoiceId`. Each line is a procurement `ProductItem`: `catalogItem`, `description`, `quantity`, `price`, `cost`, `billableOption`, `sequenceNumber`, and `productClass` (`Agreement`, `Bundle`, `Inventory`, `NonInventory`, or `Service`). Agreement-related product charges are the lines with `productClass` `Agreement`, or with `agreement` / `agreementAmount` set. Pass `conditions` to narrow further (they are ANDed with the invoice scope), for example `productClass = "Agreement"`. Use `orderBy` `sequenceNumber` to follow invoice order. Keep paging until a short page comes back.
+4. Time. `cw_get_invoice_time_entries` with the same `invoiceId`. Use `actualHours`, `hoursBilled`, `invoiceHours`, and `hourlyRate` against `serviceTotal`. Agreement-covered time is on the same records: `agreement`, `agreementHours`, `agreementAmount`, and status `BilledAgreement` (other billed time is status `Billed`).
+5. Expenses. `cw_get_invoice_expenses` with the same `invoiceId`. Use `invoiceAmount` and `billAmount` against `expenseTotal`. Agreement-covered expenses carry `agreement` and `agreementAmount`.
+
+Agreement additions (`cw_get_agreement_additions`) are the recurring lines on the contract. They are not the lines on a generated invoice. The invoice header's `agreementAmount` is the agreement portion of that invoice; the line-level agreement fields above are how that portion is split across products, time, and expenses.
 
 ### Opportunities
 - `cw_search_opportunities` — Search opportunities
