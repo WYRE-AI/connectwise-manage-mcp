@@ -138,4 +138,47 @@ describe("Cloudflare Worker entrypoint", () => {
     );
     expect(res.status).toBe(401);
   });
+
+  describe("env mode caller auth", () => {
+    const CREDS: Env = {
+      CW_MANAGE_COMPANY_ID: "acme",
+      CW_MANAGE_PUBLIC_KEY: "pub",
+      CW_MANAGE_PRIVATE_KEY: "priv",
+      CW_MANAGE_CLIENT_ID: "client-guid",
+    };
+    const call = {
+      jsonrpc: "2.0",
+      id: 9,
+      method: "tools/call",
+      params: { name: "cw_create_schedule_entry", arguments: {} },
+    };
+
+    async function withAuth(env: Env, authorization?: string): Promise<Response> {
+      return worker.fetch(
+        new Request("http://worker.local/mcp", {
+          method: "POST",
+          headers: authorization ? { ...MCP_HEADERS, Authorization: authorization } : MCP_HEADERS,
+          body: JSON.stringify(call),
+        }),
+        env,
+      );
+    }
+
+    it("fails closed when secrets are set but MCP_BEARER_TOKEN is not", async () => {
+      expect((await withAuth(CREDS)).status).toBe(503);
+    });
+
+    it("rejects a missing or wrong bearer token", async () => {
+      const env = { ...CREDS, MCP_BEARER_TOKEN: "s3cret" };
+      expect((await withAuth(env)).status).toBe(401);
+      expect((await withAuth(env, "Bearer nope")).status).toBe(401);
+    });
+
+    it("lets a caller with the right bearer token through", async () => {
+      const env = { ...CREDS, MCP_BEARER_TOKEN: "s3cret" };
+      const res = await withAuth(env, "Bearer s3cret");
+      expect(res.status).not.toBe(401);
+      expect(res.status).not.toBe(503);
+    });
+  });
 });
