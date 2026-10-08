@@ -137,8 +137,9 @@ needed.
 - `cw_create_agreement_addition` — Create a new addition on an agreement
 
 ### Invoices
-- `cw_search_invoices` — Search invoices
+- `cw_search_invoices` — Search invoices (CW `conditions`, `orderBy` e.g. `id desc`)
 - `cw_get_invoice` — Get an invoice by ID
+- `cw_update_invoice` — Update one invoice with JSON Patch (`PATCH /finance/invoices/{id}`); returns the updated invoice in the same shape as `cw_get_invoice`. Allowed paths (leading slash optional): `status/id` or `status` (`{ id }`), `attention`, `dueDate`, `date`, `reference`, `customerPO`, `internalNotes`, `billToCompany` and `billingSite` (each as `{ id }` or via `/id`; `billToSite` is accepted as an alias for Manage's `billingSite`). Manage invoices have no `billToContact` field — use `attention` for the contact name. Custom and payment fields are rejected before Manage is called. `dryRun: true` GETs the invoice, applies the patch in memory, and returns `{ dryRun: true, saved: false, preview }` with no write. No batch mode — loop over ids (concurrency 3–5) and report per invoice. Resolve billing status names to ids first; never guess an id. Manage 400/401/403/404/409 errors pass through; 429/5xx is retried once. Requires the API member's role to have **Finance › Invoices: Edit**.
 
 ### Opportunities
 - `cw_search_opportunities` — Search opportunities
