@@ -45,7 +45,7 @@ describe("ticket configuration tools", () => {
       properties: Record<string, unknown>;
     } }[] }>("tools/list", {});
     const tools = result.tools;
-    expect(tools).toHaveLength(82);
+    expect(tools).toHaveLength(86);
     const get = tools.find((tool) => tool.name === "cw_get_ticket_configurations")!;
     const update = tools.find((tool) => tool.name === "cw_update_ticket_configurations")!;
     expect(get.inputSchema.required).toEqual(["id"]);
