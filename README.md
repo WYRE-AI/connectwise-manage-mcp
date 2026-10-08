@@ -5,7 +5,7 @@
 
 **Let your AI assistant work directly with ConnectWise Manage.** Search tickets, log time, look up companies and contacts, manage projects — through natural conversation instead of clicking through the CWM interface.
 
-This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 72 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
+This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 82 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
 
 > **Part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Autotask](https://github.com/wyre-technology/autotask-mcp), [Datto RMM](https://github.com/wyre-technology/datto-rmm-mcp), [IT Glue](https://github.com/wyre-technology/itglue-mcp), [HaloPSA](https://github.com/wyre-technology/halopsa-mcp), [NinjaOne](https://github.com/wyre-technology/ninjaone-mcp), [Huntress](https://github.com/wyre-technology/huntress-mcp), and more. Built by MSPs, for MSPs.
 
@@ -146,10 +146,24 @@ needed.
 - `cw_get_agreement_additions` — Get additions (line items) on an agreement
 - `cw_update_agreement_addition` — Update an addition with JSON Patch (quantity, effectiveDate, cancelledDate, billCustomer, etc.); supports a `dryRun` preview that makes no write
 - `cw_create_agreement_addition` — Create a new addition on an agreement
+- `cw_search_agreement_recaps` — Search agreement billing recaps (used, remaining, overrun, next invoice)
+- `cw_get_agreement_recap` — Get the billing recap for one agreement
 
 ### Invoices
 - `cw_search_invoices` — Search invoices
 - `cw_get_invoice` — Get an invoice by ID
+
+### Procurement
+- `cw_search_purchase_orders` — Search purchase orders
+- `cw_get_purchase_order` — Get a purchase order by ID
+- `cw_get_purchase_order_items` — Get the line items on a purchase order
+- `cw_search_procurement_products` — Search procurement product items (SKUs placed on a ticket, project, order or opportunity)
+- `cw_get_procurement_product` — Get a procurement product item by ID
+
+### Sales Orders
+- `cw_search_sales_orders` — Search sales orders
+- `cw_get_sales_order` — Get a sales order by ID
+- `cw_get_sales_order_products` — Get the product items on a sales order
 
 ### Opportunities
 - `cw_search_opportunities` — Search opportunities
