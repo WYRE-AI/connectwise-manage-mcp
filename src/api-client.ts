@@ -19,6 +19,7 @@
  * tenants' cloud-hosted, fully-verified connections).
  */
 import { Agent } from "undici";
+import { assertSafeGatewayUrl } from "./url-guard.js";
 
 export interface CwManageConfig {
   baseUrl: string;
@@ -26,6 +27,8 @@ export interface CwManageConfig {
   publicKey: string;
   privateKey: string;
   clientId: string;
+  /** Set when baseUrl came from the X-CW-Url header; checked before every request. */
+  untrustedBaseUrl?: boolean;
 }
 
 export function getConfig(): CwManageConfig | null {
@@ -46,6 +49,8 @@ export function getConfig(): CwManageConfig | null {
   return { baseUrl, companyId, publicKey, privateKey, clientId };
 }
 
+const REQUEST_TIMEOUT_MS = 30_000;
+
 /**
  * Low-level API client for ConnectWise Manage REST API.
  */
@@ -54,12 +59,14 @@ export class CwManageClient {
   private readonly clientId: string;
   private readonly apiBase: string;
   private readonly dispatcher: Agent | undefined;
+  private readonly untrustedBaseUrl: string | undefined;
 
   constructor(config: CwManageConfig) {
     // Auth: Basic base64("{companyId}+{publicKey}:{privateKey}")
     const credentials = `${config.companyId}+${config.publicKey}:${config.privateKey}`;
     this.authHeader = `Basic ${Buffer.from(credentials).toString("base64")}`;
     this.clientId = config.clientId;
+    this.untrustedBaseUrl = config.untrustedBaseUrl ? config.baseUrl : undefined;
     // Append the standard API path if the URL doesn't already contain it
     this.apiBase = config.baseUrl.includes("/v4_6_release/")
       ? config.baseUrl.replace(/\/+$/, "")
@@ -100,6 +107,10 @@ export class CwManageClient {
       params?: Record<string, string | number | undefined>;
     },
   ): Promise<T> {
+    // Re-checked per request so a hostname re-pointed after the last call is caught.
+    if (this.untrustedBaseUrl !== undefined) {
+      await assertSafeGatewayUrl(this.untrustedBaseUrl);
+    }
     const url = new URL(`${this.apiBase}${path}`);
 
     if (options?.params) {
@@ -113,6 +124,10 @@ export class CwManageClient {
     const fetchOptions: RequestInit = {
       method,
       headers: this.defaultHeaders(),
+      // A redirect could point anywhere, including addresses the guard rejects.
+      // "manual" plus a status check: Cloudflare Workers reject redirect: "error".
+      redirect: "manual",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     };
 
     // Self-hosted instances with self-signed certificates: the dispatcher
@@ -136,6 +151,12 @@ export class CwManageClient {
     }
 
     const response = await fetch(url.toString(), fetchOptions);
+
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error(
+        `ConnectWise API ${method} ${path} returned a redirect (HTTP ${response.status}); refusing to follow it.`,
+      );
+    }
 
     if (!response.ok) {
       const errorBody = await response.text();
