@@ -23,6 +23,13 @@
  *
  * `tools/list` and `initialize` work without credentials; only `tools/call`
  * requires them.
+ *
+ * Caller auth in env mode: once Worker secrets give this Worker a vendor
+ * identity, every `/mcp` request must carry `Authorization: Bearer
+ * <MCP_BEARER_TOKEN>`. If the secrets are set but MCP_BEARER_TOKEN is not,
+ * `/mcp` fails closed (503) instead of exposing reads and schedule writes to
+ * anyone who can reach the Worker. Gateway mode authenticates by the
+ * per-request credential headers.
  */
 
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -41,6 +48,30 @@ export interface Env {
   CW_MANAGE_URL?: string;
   AUTH_MODE?: string;
   LOG_LEVEL?: string;
+  /** Required in env mode when CW_MANAGE_* secrets are set. */
+  MCP_BEARER_TOKEN?: string;
+}
+
+/** Constant-time string compare (no early exit on the first differing byte). */
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  let diff = x.length ^ y.length;
+  const len = Math.max(x.length, y.length);
+  for (let i = 0; i < len; i++) {
+    diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+function hasEnvCredentials(env: Env): boolean {
+  return Boolean(
+    env.CW_MANAGE_COMPANY_ID ||
+      env.CW_MANAGE_PUBLIC_KEY ||
+      env.CW_MANAGE_PRIVATE_KEY ||
+      env.CW_MANAGE_CLIENT_ID,
+  );
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -108,6 +139,31 @@ export default {
         }
         configOverride = config;
       } else {
+        if (hasEnvCredentials(env)) {
+          const expected = env.MCP_BEARER_TOKEN?.trim();
+          if (!expected) {
+            return json(
+              {
+                error: "Not configured",
+                message:
+                  "This Worker has ConnectWise credentials but no MCP_BEARER_TOKEN, so /mcp is disabled. Set the MCP_BEARER_TOKEN secret.",
+              },
+              503,
+            );
+          }
+          const header = request.headers.get("Authorization") ?? "";
+          const presented = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+          if (!presented || !timingSafeEqual(presented, expected)) {
+            return new Response(JSON.stringify({ error: "Unauthorized" }), {
+              status: 401,
+              headers: {
+                "Content-Type": "application/json",
+                "WWW-Authenticate": 'Bearer realm="connectwise-manage-mcp"',
+                ...CORS_HEADERS,
+              },
+            });
+          }
+        }
         // env mode: build config from Worker secrets if present.
         // (Absent creds are fine — tools/list still works, tools/call errors.)
         const { config } = buildConfig(

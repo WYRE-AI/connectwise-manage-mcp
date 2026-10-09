@@ -6,6 +6,65 @@ import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
 
 export function registerTicketTools(server: McpServer, client: CwManageClient) {
   server.tool(
+    "cw_get_ticket_configurations",
+    "Get configuration references associated with a service ticket, one page at a time (default: page 1, 25 results). Request additional pages as needed. Returns id, deviceIdentifier, and _info when provided by Manage; use cw_get_configuration for full configuration details.",
+    {
+      id: z.number().int().positive().describe("Service ticket ID"),
+      page: z.number().int().positive().optional().describe("Page number (default: 1)"),
+      pageSize: z.number().int().positive().max(1000).optional().describe("Results per page (default: 25, max: 1000)"),
+      conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      orderBy: z.string().optional().describe("Field to order by (e.g. 'id asc')"),
+    },
+    async ({ id, page, pageSize, conditions, orderBy }) => {
+      const result = await client.get(`/service/tickets/${id}/configurations`, {
+        page: page ?? 1,
+        pageSize: pageSize ?? 25,
+        conditions,
+        orderBy,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    "cw_update_ticket_configurations",
+    "Add or remove configuration associations on a service ticket. Operations run sequentially in the supplied order, including repeated configuration IDs. Removing an association leaves the configuration object intact. Continues after individual failures without rollback or automatic retries; returns every operation's outcome and sets isError if any fail. Duplicate-add and missing-association errors are reported as failures.",
+    {
+      id: z.number().int().positive().describe("Service ticket ID"),
+      operations: z.array(z.object({
+        action: z.enum(["add", "remove"]).describe("Add or remove the ticket association"),
+        configurationId: z.number().int().positive().describe("Existing configuration object ID"),
+      })).min(1).describe("Nonempty ordered list of configuration association changes"),
+    },
+    async ({ id, operations }) => {
+      const results = [];
+      const path = `/service/tickets/${id}/configurations`;
+      for (const operation of operations) {
+        try {
+          if (operation.action === "add") {
+            const configuration = await client.post(path, { id: operation.configurationId });
+            results.push({ ...operation, success: true, configuration });
+          } else {
+            await client.delete(`${path}/${operation.configurationId}`);
+            results.push({ ...operation, success: true });
+          }
+        } catch (err: unknown) {
+          results.push({
+            ...operation,
+            success: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      const success = results.every((result) => result.success);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ ticketId: id, success, results }, null, 2) }],
+        isError: !success,
+      };
+    },
+  );
+
+  server.tool(
     "cw_search_tickets",
     "Search service tickets in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"status/name != 'Closed'\" or \"company/name = 'Acme'\").",
     {
@@ -49,8 +108,14 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       // MCP Apps: attach the normalized card payload the ui:// ticket card
       // renders from. Best-effort — a null card just means no UI surface.
       const card = await buildTicketCard(result, client);
-      const payload = card ? { ...result, _card: card } : result;
-      return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+      const structuredContent = card ? { ...result, _card: card } : result;
+      const summary = card
+        ? `Ticket #${card.id}: ${card.summary} (${card.priority ?? "no priority"}, ${card.status ?? "no status"})`
+        : `Ticket #${id}`;
+      return {
+        content: [{ type: "text", text: summary }],
+        structuredContent,
+      };
     },
   );
 

@@ -5,7 +5,7 @@
 
 **Let your AI assistant work directly with ConnectWise Manage.** Search tickets, log time, look up companies and contacts, manage projects — through natural conversation instead of clicking through the CWM interface.
 
-This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 53 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
+This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 82 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
 
 > **Part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Autotask](https://github.com/wyre-technology/autotask-mcp), [Datto RMM](https://github.com/wyre-technology/datto-rmm-mcp), [IT Glue](https://github.com/wyre-technology/itglue-mcp), [HaloPSA](https://github.com/wyre-technology/halopsa-mcp), [NinjaOne](https://github.com/wyre-technology/ninjaone-mcp), [Huntress](https://github.com/wyre-technology/huntress-mcp), and more. Built by MSPs, for MSPs.
 
@@ -79,6 +79,8 @@ needed.
 ### Tickets
 - `cw_search_tickets` — Search service tickets with conditions
 - `cw_get_ticket` — Get a ticket by ID
+- `cw_get_ticket_configurations` — List configuration references associated with a service ticket (paged)
+- `cw_update_ticket_configurations` — Add/remove ticket configuration associations in an ordered batch, reporting every outcome
 - `cw_create_ticket` — Create a new service ticket. Optional `parentTicketId` (the same field `cw_get_ticket` returns) creates the ticket as a child of that parent.
 - `cw_update_ticket` — Update a ticket (JSON Patch)
 - `cw_get_ticket_notes` — Get all notes on a ticket (including child ticket notes)
@@ -94,6 +96,8 @@ needed.
 - `cw_search_contacts` — Search contacts. Filter contact type with `typeName`, `typeId`, or `childConditions` (for example `types/name = "Primary"`). `types` / `types/name` in `conditions` is invalid and returns 400 `ApiFindCondition` because type is a child collection; the tool moves those clauses to `childConditions`. Contacts have `firstName` and `lastName`, not `name`. String values use double quotes (`firstName = "Ada"`); single quotes are accepted and rewritten.
 - `cw_get_contact` — Get a contact by ID
 - `cw_create_contact` — Create a new contact
+- `cw_update_contact` — Update a contact (JSON Patch on `PATCH /company/contacts/{id}`). Paths include `firstName`, `lastName`, `title`, `inactiveFlag`, `site`, `communicationItems` (email and phone), and `customFields`. Contact types are not on this patch.
+- `cw_update_contact_types` — Add or remove a contact type such as "Decision Maker" (`POST` / `DELETE /company/contacts/{id}/typeAssociations`). Adding a type the contact already has does not create a duplicate.
 
 ### Projects
 - `cw_search_projects` — Search projects
@@ -110,6 +114,13 @@ needed.
 - `cw_create_time_entry` — Create a new time entry
 - `cw_update_time_entry` — Correct a time entry (JSON Patch on `PATCH /time/entries/{id}`). Use this to fix `actualHours` when a metered agreement rounds to 0.25.
 - `cw_delete_time_entry` — Delete a time entry (`DELETE /time/entries/{id}`). Manage rejects deletes of entries that are already billed.
+
+### Schedule Entries
+- `cw_search_schedule_entries` — Search booked resource time
+- `cw_list_schedule_types` — List schedule types (Service, Project, Sales, Meeting)
+- `cw_list_schedule_statuses` — List schedule statuses (Tentative, Firm)
+- `cw_create_schedule_entry` — Book resource time against a ticket, activity or project ticket
+- `cw_update_schedule_entry` — Update a schedule entry (JSON Patch)
 
 ### Members
 - `cw_search_members` — Search members/technicians
@@ -135,11 +146,25 @@ needed.
 - `cw_get_agreement_additions` — Get additions (line items) on an agreement
 - `cw_update_agreement_addition` — Update an addition with JSON Patch (quantity, effectiveDate, cancelledDate, billCustomer, etc.); supports a `dryRun` preview that makes no write
 - `cw_create_agreement_addition` — Create a new addition on an agreement
+- `cw_search_agreement_recaps` — Search agreement billing recaps (used, remaining, overrun, next invoice)
+- `cw_get_agreement_recap` — Get the billing recap for one agreement
 
 ### Invoices
 - `cw_search_invoices` — Search invoices (CW `conditions`, `orderBy` e.g. `id desc`)
 - `cw_get_invoice` — Get an invoice by ID
 - `cw_update_invoice` — Update one invoice with JSON Patch (`PATCH /finance/invoices/{id}`); returns the updated invoice in the same shape as `cw_get_invoice`. Allowed paths (leading slash optional): `status/id` or `status` (`{ id }`), `attention`, `dueDate`, `date`, `reference`, `customerPO`, `internalNotes`, `billToCompany` and `billingSite` (each as `{ id }` or via `/id`; `billToSite` is accepted as an alias for Manage's `billingSite`). Manage invoices have no `billToContact` field — use `attention` for the contact name. Custom and payment fields are rejected before Manage is called. `dryRun: true` GETs the invoice, applies the patch in memory, and returns `{ dryRun: true, saved: false, preview }` with no write. No batch mode — loop over ids (concurrency 3–5) and report per invoice. Resolve billing status names to ids first; never guess an id. Manage 400/401/403/404/409 errors pass through; 429/5xx is retried once. Requires the API member's role to have **Finance › Invoices: Edit**.
+
+### Procurement
+- `cw_search_purchase_orders` — Search purchase orders
+- `cw_get_purchase_order` — Get a purchase order by ID
+- `cw_get_purchase_order_items` — Get the line items on a purchase order
+- `cw_search_procurement_products` — Search procurement product items (SKUs placed on a ticket, project, order or opportunity)
+- `cw_get_procurement_product` — Get a procurement product item by ID
+
+### Sales Orders
+- `cw_search_sales_orders` — Search sales orders
+- `cw_get_sales_order` — Get a sales order by ID
+- `cw_get_sales_order_products` — Get the product items on a sales order
 
 ### Opportunities
 - `cw_search_opportunities` — Search opportunities
@@ -156,6 +181,19 @@ needed.
 - `cw_list_catalog_categories` — List catalog categories
 - `cw_list_catalog_subcategories` — List catalog subcategories
 - `cw_list_manufacturers` — List manufacturers
+
+### Procurement Inventory
+Warehouse stock and Inventory Adjustments. An adjustment is the only supported way to change on-hand quantities through the API: create the header, add the lines, then close it to post.
+- `cw_list_warehouses` — List inventory warehouses
+- `cw_list_warehouse_bins` — List warehouse bins, optionally for one warehouse
+- `cw_get_inventory_on_hand` — Report every item with non-zero on-hand per bin, negatives included, with unit cost and extended value
+- `cw_list_adjustment_types` — List inventory adjustment types
+- `cw_create_adjustment` — Create an adjustment header (moves no stock)
+- `cw_add_adjustment_detail` — Add one signed adjustment line, with serial numbers for serialised items
+- `cw_get_adjustment` — Get an adjustment header with all of its detail lines
+- `cw_close_adjustment` — Post the adjustment. **Not reversible except by a counter-adjustment**
+
+Two limits of the ConnectWise API are worth knowing before using these. There is no `summary` field on an adjustment: the free-text fields are `reason` (max 100 characters) and `notes`. And no endpoint exposes an average cost, so the `unitCost` reported by `cw_get_inventory_on_hand` is the catalog item's own `cost` field, which is the standing cost rather than the weighted average cost ConnectWise values the stock at.
 
 ### Health
 - `cw_test_connection` — Test connection (hits `/system/info`)

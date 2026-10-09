@@ -76,7 +76,7 @@ export class CwManageClient {
   private readonly authHeader: string;
   private readonly clientId: string;
   private readonly apiBase: string;
-  private readonly dispatcher: Agent;
+  private readonly dispatcher: Agent | undefined;
 
   constructor(config: CwManageConfig) {
     // Auth: Basic base64("{companyId}+{publicKey}:{privateKey}")
@@ -87,13 +87,20 @@ export class CwManageClient {
     this.apiBase = config.baseUrl.includes("/v4_6_release/")
       ? config.baseUrl.replace(/\/+$/, "")
       : `${config.baseUrl}/v4_6_release/apis/3.0`;
-    const rejectUnauthorized =
-      process.env.CW_MANAGE_REJECT_UNAUTHORIZED !== "false";
+    // Only build a custom dispatcher when relaxed TLS is explicitly requested.
     // Scoped to this client instance's own connections only -- never touches
     // process.env, so a self-hosted (self-signed) instance's relaxed TLS
     // verification can never bleed into a concurrent request against a
     // different (cloud, fully-verified) tenant's connection.
-    this.dispatcher = new Agent({ connect: { rejectUnauthorized } });
+    //
+    // The default (verified) path deliberately uses Node's built-in fetch
+    // dispatcher: passing the standalone `undici` package's Agent to Node's
+    // global fetch breaks every request when the bundled undici version is
+    // incompatible with the one embedded in the running Node runtime.
+    this.dispatcher =
+      process.env.CW_MANAGE_REJECT_UNAUTHORIZED === "false"
+        ? new Agent({ connect: { rejectUnauthorized: false } })
+        : undefined;
   }
 
   private defaultHeaders(): Record<string, string> {
@@ -132,8 +139,9 @@ export class CwManageClient {
     };
 
     // Self-hosted instances with self-signed certificates: the dispatcher
-    // built in the constructor scopes rejectUnauthorized to THIS client's
-    // connections only, with no process-global state involved.
+    // built in the constructor (only when CW_MANAGE_REJECT_UNAUTHORIZED is
+    // "false") scopes rejectUnauthorized to THIS client's connections only,
+    // with no process-global state involved.
     //
     // Assigned via a cast rather than a typed `dispatcher` field on
     // fetchOptions: Node's global fetch/RequestInit types (from the
@@ -142,7 +150,9 @@ export class CwManageClient {
     // `undici` package's `Dispatcher` -- a well-known dual-package hazard.
     // The value is fully compatible at runtime (Node's fetch is undici under
     // the hood); only the type-checker sees two different declarations.
-    (fetchOptions as { dispatcher?: unknown }).dispatcher = this.dispatcher;
+    if (this.dispatcher) {
+      (fetchOptions as { dispatcher?: unknown }).dispatcher = this.dispatcher;
+    }
 
     if (options?.body !== undefined) {
       fetchOptions.body = JSON.stringify(options.body);
