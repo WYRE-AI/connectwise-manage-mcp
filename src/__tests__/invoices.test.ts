@@ -1,6 +1,7 @@
 /**
  * cw_update_invoice: path allow-list, dryRun preview (no write), PATCH
- * pass-through, error pass-through, and the single 429/5xx retry.
+ * pass-through, error pass-through, and the single retry (429 always; 5xx only
+ * when every PATCH operation is replace).
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -148,6 +149,7 @@ describe("cw_update_invoice tool", () => {
     expect(Object.keys(tool.inputSchema?.properties ?? {})).toEqual(["id", "operations", "dryRun"]);
     expect(tool.inputSchema?.required).toEqual(["id", "operations"]);
     expect(tool.description).toMatch(/Ready to Send = 11/);
+    expect(tool.description).toMatch(/5xx is retried once only when every operation is replace/);
     expect(tool.description).toMatch(/Invoices: Edit/);
   });
 
@@ -209,6 +211,55 @@ describe("cw_update_invoice tool", () => {
       operations: [{ op: "replace", path: "/status/id", value: 7 }],
       preview: { id: 77, status: { id: 7, name: "New" } },
     });
+  });
+
+  it("retries a replace-only PATCH once on 503", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(fakeResponse({ message: "unavailable" }, 503))
+      .mockResolvedValueOnce(fakeResponse({ id: 77, status: { id: 11 } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await mcp("tools/call", {
+      name: "cw_update_invoice",
+      arguments: { id: 77, operations: [{ op: "replace", path: "status/id", value: 11 }] },
+    });
+    const result = res.result as ToolResult;
+    expect(result.isError).not.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.every((call) => (call[1] as { method: string }).method === "PATCH")).toBe(true);
+  });
+
+  it("does not retry a remove PATCH on 503", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ message: "unavailable" }, 503));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await mcp("tools/call", {
+      name: "cw_update_invoice",
+      arguments: { id: 77, operations: [{ op: "remove", path: "attention" }] },
+    });
+    const result = res.result as ToolResult;
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text).toMatch(/503/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries both replace and remove once on 429", async () => {
+    for (const operations of [
+      [{ op: "replace", path: "status/id", value: 11 }],
+      [{ op: "remove", path: "attention" }],
+    ]) {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(fakeResponse({ message: "slow down" }, 429))
+        .mockResolvedValueOnce(fakeResponse({ id: 77 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const res = await mcp("tools/call", {
+        name: "cw_update_invoice",
+        arguments: { id: 77, operations },
+      });
+      const result = res.result as ToolResult;
+      expect(result.isError).not.toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }
   });
 
   it("passes a Manage 403 through with its message and does not retry", async () => {

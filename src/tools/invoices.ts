@@ -1,7 +1,7 @@
 /**
  * cw_update_invoice: JSON Patch updates to a finance invoice
  * (Manage PATCH /finance/invoices/{id}), with a path allow-list, a dryRun
- * preview mode, and a single retry on 429/5xx.
+ * preview mode, and a single retry: 429 always, 5xx only for a replace-only PATCH.
  *
  * Registered from registerAgreementTools right after cw_search_invoices /
  * cw_get_invoice so the three invoice tools stay together in tools/list.
@@ -196,16 +196,20 @@ export function isRetryableStatus(status: number): boolean {
 }
 
 /**
- * Runs `fn`; if it fails with a CwApiError whose status is 429 or 5xx, waits
- * `backoffMs` and tries exactly once more. Any other error (including every
- * other 4xx) propagates immediately. CwManageClient itself never retries, so
- * this is the only retry layer.
+ * Runs `fn`; if it fails with a CwApiError whose status passes
+ * `retryableStatus`, waits `backoffMs` and tries exactly once more. The
+ * default is 429 and 5xx. Any other error propagates immediately.
+ * CwManageClient itself never retries, so this is the only retry layer.
  */
-export async function withSingleRetry<T>(fn: () => Promise<T>, backoffMs = 1000): Promise<T> {
+export async function withSingleRetry<T>(
+  fn: () => Promise<T>,
+  backoffMs = 1000,
+  retryableStatus: (status: number) => boolean = isRetryableStatus,
+): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    if (err instanceof CwApiError && isRetryableStatus(err.status)) {
+    if (err instanceof CwApiError && retryableStatus(err.status)) {
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
       return fn();
     }
@@ -224,7 +228,7 @@ const DESCRIPTION = [
   "Scout billing status ids: New = 1, Closed = 6, Approved = 7, Rejected = 8 (inactive), Ready to Send = 11. Callers must resolve a status name to one of these ids first and never invent or guess an id; if the name does not match, stop and ask.",
   "No batch mode: one invoice per call. To update many, loop over ids with concurrency 3-5 and report the result per invoice.",
   "Set dryRun to GET the current invoice, apply the patch locally, and return { dryRun: true, saved: false, preview } with no write.",
-  "Errors from Manage (400/401/403/404/409) are returned with Manage's message; 429/5xx is retried once after a short backoff. Requires the API member's security role to have Finance > Invoices: Edit.",
+  "Errors from Manage (400/401/403/404/409) are returned with Manage's message; 429 is retried once after a short backoff, and 5xx is retried once only when every operation is replace (a PATCH that includes add or remove retries only on 429; a dry-run GET still retries 429 and 5xx). Requires the API member's security role to have Finance > Invoices: Edit.",
 ].join(" ");
 
 export function registerInvoiceUpdateTool(server: McpServer, client: CwManageClient, backoffMs = 1000) {
@@ -265,7 +269,12 @@ export function registerInvoiceUpdateTool(server: McpServer, client: CwManageCli
             ],
           };
         }
-        const result = await withSingleRetry(() => client.patch(path, outbound), backoffMs);
+        const allOpsAreReplace = outbound.every((operation) => operation.op === "replace");
+        const result = await withSingleRetry(
+          () => client.patch(path, outbound),
+          backoffMs,
+          (status) => status === 429 || (allOpsAreReplace && status >= 500),
+        );
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err) {
         return errorResult(err);
