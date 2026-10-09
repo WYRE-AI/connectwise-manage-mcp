@@ -138,12 +138,13 @@ describe("withSingleRetry", () => {
 describe("cw_update_invoice tool", () => {
   it("is listed next to search/get invoice with id, operations, dryRun", async () => {
     const body = await mcp("tools/list", {});
-    const tools = (body.result as { tools: { name: string; description?: string; inputSchema?: { properties?: Record<string, unknown>; required?: string[] } }[] }).tools;
+    const tools = (body.result as { tools: { name: string; description?: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean }; inputSchema?: { properties?: Record<string, unknown>; required?: string[] } }[] }).tools;
     const names = tools.map((t) => t.name);
     const i = names.indexOf("cw_update_invoice");
     expect(i).toBeGreaterThan(-1);
     expect(names[i - 1]).toBe("cw_get_invoice");
     const tool = tools[i];
+    expect(tool.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     expect(Object.keys(tool.inputSchema?.properties ?? {})).toEqual(["id", "operations", "dryRun"]);
     expect(tool.inputSchema?.required).toEqual(["id", "operations"]);
     expect(tool.description).toMatch(/Ready to Send = 11/);
@@ -156,7 +157,13 @@ describe("cw_update_invoice tool", () => {
 
     const res = await mcp("tools/call", {
       name: "cw_update_invoice",
-      arguments: { id: 77, operations: [{ op: "replace", path: "/status/id", value: 11 }] },
+      arguments: {
+        id: 77,
+        operations: [
+          { op: "replace", path: "/status/id", value: 11 },
+          { op: "replace", path: "billToSite/id", value: 42 },
+        ],
+      },
     });
     const result = res.result as ToolResult;
     expect(result.isError).not.toBe(true);
@@ -164,7 +171,10 @@ describe("cw_update_invoice tool", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, { method: string; body: string }];
     expect(url).toContain("/finance/invoices/77");
     expect(init.method).toBe("PATCH");
-    expect(JSON.parse(init.body)).toEqual([{ op: "replace", path: "status/id", value: 11 }]);
+    expect(JSON.parse(init.body)).toEqual([
+      { op: "replace", path: "/status/id", value: 11 },
+      { op: "replace", path: "/billingSite/id", value: 42 },
+    ]);
   });
 
   it("rejects a disallowed path without calling Manage", async () => {
@@ -196,6 +206,7 @@ describe("cw_update_invoice tool", () => {
     expect(JSON.parse(result.content?.[0]?.text ?? "")).toMatchObject({
       dryRun: true,
       saved: false,
+      operations: [{ op: "replace", path: "/status/id", value: 7 }],
       preview: { id: 77, status: { id: 7, name: "New" } },
     });
   });

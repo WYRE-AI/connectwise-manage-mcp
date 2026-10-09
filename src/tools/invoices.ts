@@ -95,6 +95,18 @@ export function normalizeInvoicePath(path: string): string {
   return INVOICE_PATH_ALIASES[stripped] ?? stripped;
 }
 
+/**
+ * Manage's documented JSON Patch examples are RFC 6902 pointers (`/summary`,
+ * `/status/id`). Callers may omit the slash; the allow-list is slash-less.
+ * The body sent to Manage always has the leading slash.
+ */
+export function toManageInvoiceOperations(operations: InvoicePatchOperation[]): InvoicePatchOperation[] {
+  return operations.map((operation) => ({
+    ...operation,
+    path: `/${normalizeInvoicePath(operation.path)}`,
+  }));
+}
+
 function isPositiveInt(v: unknown): v is number {
   return typeof v === "number" && Number.isInteger(v) && v > 0;
 }
@@ -230,6 +242,7 @@ export function registerInvoiceUpdateTool(server: McpServer, client: CwManageCli
         .optional()
         .describe("If true, fetch the current invoice, apply the patch locally, and return the would-be result without calling PATCH (no write is made)."),
     },
+    { readOnlyHint: false, destructiveHint: true },
     async ({ id, operations, dryRun }) => {
       let normalized: InvoicePatchOperation[];
       try {
@@ -237,6 +250,7 @@ export function registerInvoiceUpdateTool(server: McpServer, client: CwManageCli
       } catch (err) {
         return errorResult(err);
       }
+      const outbound = toManageInvoiceOperations(normalized);
       const path = `/finance/invoices/${id}`;
       try {
         if (dryRun) {
@@ -246,12 +260,12 @@ export function registerInvoiceUpdateTool(server: McpServer, client: CwManageCli
             content: [
               {
                 type: "text",
-                text: JSON.stringify({ dryRun: true, saved: false, operations: normalized, preview }, null, 2),
+                text: JSON.stringify({ dryRun: true, saved: false, operations: outbound, preview }, null, 2),
               },
             ],
           };
         }
-        const result = await withSingleRetry(() => client.patch(path, normalized), backoffMs);
+        const result = await withSingleRetry(() => client.patch(path, outbound), backoffMs);
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err) {
         return errorResult(err);
