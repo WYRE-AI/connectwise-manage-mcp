@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { registerInvoiceUpdateTool } from "./invoices.js";
 
 // RFC 6902 requires a "value" member on add/replace but forbids relying on it
 // for remove. A flat z.object with an optional value let a caller omit it on
@@ -266,4 +267,8 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
+
+  // cw_update_invoice lives in ./invoices.ts (allow-list, dryRun, retry);
+  // registered here so search/get/update invoice stay adjacent.
+  registerInvoiceUpdateTool(server, client);
 }

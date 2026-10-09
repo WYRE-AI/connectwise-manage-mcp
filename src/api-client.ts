@@ -47,6 +47,29 @@ export function getConfig(): CwManageConfig | null {
 }
 
 /**
+ * Error thrown for a non-2xx Manage response. The message format is unchanged
+ * from the plain Error this replaced ("ConnectWise API {METHOD} {path}
+ * returned {status}: {body}"), so existing message-matching callers keep
+ * working; `status` lets callers branch on the HTTP code (e.g. retry policy)
+ * without parsing the message. The client itself never retries.
+ */
+export class CwApiError extends Error {
+  readonly status: number;
+  readonly body: string;
+  readonly method: string;
+  readonly path: string;
+
+  constructor(method: string, path: string, status: number, body: string) {
+    super(`ConnectWise API ${method} ${path} returned ${status}: ${body}`);
+    this.name = "CwApiError";
+    this.method = method;
+    this.path = path;
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/**
  * Low-level API client for ConnectWise Manage REST API.
  */
 export class CwManageClient {
@@ -139,9 +162,7 @@ export class CwManageClient {
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(
-        `ConnectWise API ${method} ${path} returned ${response.status}: ${errorBody}`,
-      );
+      throw new CwApiError(method, path, response.status, errorBody);
     }
 
     // Some endpoints return 204 No Content
