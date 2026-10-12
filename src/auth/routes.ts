@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { EntraConfig } from "./types.js";
+import { parseRequestTarget } from "../request-target.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -139,10 +140,12 @@ export function handleAuthorize(
   res: ServerResponse,
   config: EntraConfig,
 ): void {
-  const incomingUrl = new URL(
-    req.url ?? "/",
-    `https://${req.headers.host ?? "localhost"}`,
-  );
+  // Parsed against a fixed base, never the client-supplied Host header.
+  const incomingUrl = parseRequestTarget(req.url);
+  if (!incomingUrl) {
+    sendJson(res, 400, { error: "invalid_request" });
+    return;
+  }
 
   const azureParams = new URLSearchParams();
 
