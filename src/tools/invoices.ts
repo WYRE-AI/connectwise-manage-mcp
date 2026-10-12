@@ -228,7 +228,7 @@ const DESCRIPTION = [
   "Scout billing status ids: New = 1, Closed = 6, Approved = 7, Rejected = 8 (inactive), Ready to Send = 11. Callers must resolve a status name to one of these ids first and never invent or guess an id; if the name does not match, stop and ask.",
   "No batch mode: one invoice per call. To update many, loop over ids with concurrency 3-5 and report the result per invoice.",
   "Set dryRun to GET the current invoice, apply the patch locally, and return { dryRun: true, saved: false, preview } with no write.",
-  "Errors from Manage (400/401/403/404/409) are returned with Manage's message; 429 is retried once after a short backoff, and 5xx is retried once only when every operation is replace (a PATCH that includes add or remove retries only on 429; a dry-run GET still retries 429 and 5xx). Requires the API member's security role to have Finance > Invoices: Edit.",
+  "Errors from Manage (400/401/403/404/409) are returned as the HTTP status and a reference id; a 400 also names the refused field and a 403 carries Manage's code and message; 429 is retried once after a short backoff, and 5xx is retried once only when every operation is replace (a PATCH that includes add or remove retries only on 429; a dry-run GET still retries 429 and 5xx). Requires the API member's security role to have Finance > Invoices: Edit.",
 ].join(" ");
 
 export function registerInvoiceUpdateTool(server: McpServer, client: CwManageClient, backoffMs = 1000) {

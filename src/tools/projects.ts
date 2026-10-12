@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { CwManageClient } from "../api-client.js";
+import { CwManageClient, hasApiStatus } from "../api-client.js";
 import { mapCreatedNoteResponse } from "./note-payload.js";
 
 export function registerProjectTools(server: McpServer, client: CwManageClient) {
@@ -89,8 +89,7 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
         });
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("404") || msg.includes("405")) {
+        if (hasApiStatus(err, 404, 405)) {
           // allNotes not supported on this CWM version — fall back to /notes
           const result = await client.get(`/project/tickets/${id}/notes`, {
             page: page ?? 1,

@@ -19,6 +19,13 @@
  * tenants' cloud-hosted, fully-verified connections).
  */
 import { Agent } from "undici";
+import {
+  formatErrorDetail,
+  logRequestFailure,
+  newErrorReference,
+  safeErrorDetail,
+  type SafeErrorDetail,
+} from "./safe-error.js";
 
 export interface CwManageConfig {
   baseUrl: string;
@@ -47,26 +54,48 @@ export function getConfig(): CwManageConfig | null {
 }
 
 /**
- * Error thrown for a non-2xx Manage response. The message format is unchanged
- * from the plain Error this replaced ("ConnectWise API {METHOD} {path}
- * returned {status}: {body}"), so existing message-matching callers keep
- * working; `status` lets callers branch on the HTTP code (e.g. retry policy)
- * without parsing the message. The client itself never retries.
+ * Error thrown for a non-2xx Manage response.
+ *
+ * The message is "ConnectWise API {METHOD} {path} returned {status}
+ * (reference {id})". It never holds the upstream response body, and neither
+ * does this object: the body is read once in the constructor to pull the
+ * allowlisted detail out of a 400 or a 403, then dropped. A 400 message ends
+ * with that detail so the caller can see which field was refused, and a 403
+ * message with ConnectWise's code and message so the caller can see which
+ * permission is missing.
+ *
+ * `status` lets callers branch on the HTTP code (e.g. retry policy) without
+ * parsing the message. `reference` matches the log line written for the
+ * failure. The client itself never retries.
  */
 export class CwApiError extends Error {
   readonly status: number;
-  readonly body: string;
   readonly method: string;
   readonly path: string;
+  readonly reference: string;
+  readonly detail: SafeErrorDetail | undefined;
 
   constructor(method: string, path: string, status: number, body: string) {
-    super(`ConnectWise API ${method} ${path} returned ${status}: ${body}`);
+    const reference = newErrorReference();
+    const detail = safeErrorDetail(status, body);
+    const suffix = detail ? `: ${formatErrorDetail(detail)}` : "";
+    super(`ConnectWise API ${method} ${path} returned ${status} (reference ${reference})${suffix}`);
     this.name = "CwApiError";
     this.method = method;
     this.path = path;
     this.status = status;
-    this.body = body;
+    this.reference = reference;
+    this.detail = detail;
   }
+}
+
+/**
+ * True when `err` is a ConnectWise response with one of the given statuses.
+ * Use this, not a search of the message text: a message also holds a path and
+ * a reference id, and either can contain the same digits as a status.
+ */
+export function hasApiStatus(err: unknown, ...statuses: number[]): boolean {
+  return err instanceof CwApiError && statuses.includes(err.status);
 }
 
 /**
@@ -161,8 +190,17 @@ export class CwManageClient {
     const response = await fetch(url.toString(), fetchOptions);
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      throw new CwApiError(method, path, response.status, errorBody);
+      // The body is read only so a 400 or a 403 can keep its allowlisted detail. It is
+      // never logged and never reaches the caller.
+      const errorBody = await response.text().catch(() => "");
+      const error = new CwApiError(method, path, response.status, errorBody);
+      logRequestFailure({
+        method,
+        path,
+        status: error.status,
+        reference: error.reference,
+      });
+      throw error;
     }
 
     // Some endpoints return 204 No Content
