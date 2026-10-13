@@ -30,3 +30,6 @@ spec:
     - key: CW_MANAGE_CLIENT_ID
       type: SECRET
       scope: RUN_AND_BUILD_TIME
+    - key: CONDUIT_S2S_SECRET
+      type: SECRET
+      scope: RUN_TIME
