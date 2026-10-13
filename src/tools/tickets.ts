@@ -211,34 +211,40 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
     "cw_add_ticket_note",
     {
       description:
-        "Add a note to a service ticket. Use detailDescriptionFlag for a discussion note, internalAnalysisFlag for an internal-only note, or resolutionFlag for a resolution note. Defaults to a plain discussion note. Email is off unless you set a flag: emailContactFlag emails the ticket contact, emailResourceFlag emails resources, and emailCcFlag emails the addresses in emailCc. Those fields are forwarded only when set — omitting them does not email anyone. Manage sends the mail when processNotifications is true; this tool sets that only if an email flag is true, or if you set processNotifications yourself. An explicit processNotifications false suppresses delivery even if a flag is true. Ticket-level recipient defaults are automaticEmailContactFlag, automaticEmailResourceFlag, automaticEmailCcFlag, and automaticEmailCc (see cw_get_ticket / cw_update_ticket).",
+        "Add a note to a service ticket. Use detailDescriptionFlag for a discussion note, internalAnalysisFlag for an internal-only note, or resolutionFlag for a resolution note. Defaults to a plain discussion note. Nothing is emailed unless processNotifications is true. emailContactFlag, emailResourceFlag, and emailCcFlag never default to true and are not sent: POST /service/tickets/{id}/notes (ServiceNote) does not have those fields (they belong to TimeEntry and to the ticket automaticEmail* fields). Sending them is what returns 400. A true flag only turns on processNotifications, unless you set processNotifications yourself. An explicit processNotifications false suppresses delivery even if a flag is true. When processNotifications is true and you did not set a type flag, this tool sets detailDescriptionFlag so Manage has a place to display the note. Recipients are the ticket's automaticEmailContactFlag, automaticEmailResourceFlag, automaticEmailCcFlag, and automaticEmailCc (cw_get_ticket / cw_update_ticket), not the note. emailCc is not sent; put CC addresses on the ticket automaticEmailCc field. To email one note and then stop, turn the ticket flag on, post with processNotifications true, then turn the flag off. memberId, when set, is sent as member.id and becomes the author. Omit memberId and Manage attributes the note to the API member that authenticated the call.",
       inputSchema: {
         id: z.number().describe("Ticket ID"),
         text: z.string().describe("Note text content"),
-        detailDescriptionFlag: z.boolean().optional().describe("Add as detail description (default: false)"),
-        internalAnalysisFlag: z.boolean().optional().describe("Mark as internal analysis only (default: false)"),
-        resolutionFlag: z.boolean().optional().describe("Mark as resolution note (default: false)"),
-        customerUpdatedFlag: z.boolean().optional().describe("Flag that the customer was updated (default: false)"),
+        detailDescriptionFlag: z.boolean().optional().describe("Add as detail description (discussion). Omit to leave unset, unless processNotifications is true and no type flag was set, in which case this tool sends true."),
+        internalAnalysisFlag: z.boolean().optional().describe("Mark as internal analysis only (default: unset)"),
+        resolutionFlag: z.boolean().optional().describe("Mark as resolution note (default: unset)"),
+        customerUpdatedFlag: z.boolean().optional().describe("Flag that the customer was updated (default: unset)"),
         emailContactFlag: z
           .boolean()
           .optional()
-          .describe("Email the ticket contact. Omit to not email the contact. Never defaults to true."),
+          .describe("Request notification processing for the ticket contact. Not a ServiceNote field and never sent. Omit or false does not email. Never defaults to true. Recipients still come from the ticket automaticEmailContactFlag."),
         emailResourceFlag: z
           .boolean()
           .optional()
-          .describe("Email ticket resources. Omit to not email resources. Never defaults to true."),
+          .describe("Request notification processing for ticket resources. Not a ServiceNote field and never sent. Omit or false does not email. Never defaults to true."),
         emailCcFlag: z
           .boolean()
           .optional()
-          .describe("Email the addresses in emailCc. Omit to not email CC. Never defaults to true. emailCc alone does not send mail."),
+          .describe("Request notification processing for ticket CC. Not a ServiceNote field and never sent. Omit or false does not email. Never defaults to true. emailCc alone does not send mail."),
         emailCc: z
           .string()
           .optional()
-          .describe("CC email addresses. Sent only when provided. Does not email anyone unless emailCcFlag is true."),
+          .describe("Not sent. ServiceNote has no emailCc. CC addresses belong on the ticket automaticEmailCc field. Does not email anyone by itself."),
         processNotifications: z
           .boolean()
           .optional()
           .describe("Manage ServiceNote processNotifications. Omit unless you need to force notification processing on or off. True sends using the ticket automaticEmail* settings. False suppresses delivery."),
+        memberId: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Author member id, sent as ServiceNote.member { id }. Omit to leave the author as the API member authenticated on the request. Never assumed."),
       },
       // MCP Apps (SEP-1865): the ticket card's "Add note" round-trip target.
       _meta: TICKET_CARD_META,
@@ -255,6 +261,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       emailCcFlag,
       emailCc,
       processNotifications,
+      memberId,
     }) => {
       const body = buildTicketNoteBody({
         text,
@@ -267,15 +274,21 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         emailCcFlag,
         emailCc,
         processNotifications,
+        memberId,
       });
 
-      const result = await client.post<Record<string, unknown>>(`/service/tickets/${id}/notes`, body);
-      const mapped = mapCreatedNoteResponse(result, {
-        detailDescriptionFlag,
-        internalAnalysisFlag,
-        resolutionFlag,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(mapped, null, 2) }] };
+      try {
+        const result = await client.post<Record<string, unknown>>(`/service/tickets/${id}/notes`, body);
+        const mapped = mapCreatedNoteResponse(result, {
+          detailDescriptionFlag: body.detailDescriptionFlag === true ? true : detailDescriptionFlag,
+          internalAnalysisFlag,
+          resolutionFlag,
+        });
+        return { content: [{ type: "text" as const, text: JSON.stringify(mapped, null, 2) }] };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text" as const, text: msg }], isError: true as const };
+      }
     },
   );
 }

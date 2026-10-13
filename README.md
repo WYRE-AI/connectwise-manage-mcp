@@ -84,7 +84,7 @@ needed.
 - `cw_create_ticket` — Create a new service ticket. Optional `parentTicketId` (the same field `cw_get_ticket` returns) creates the ticket as a child of that parent.
 - `cw_update_ticket` — Update a ticket (JSON Patch)
 - `cw_get_ticket_notes` — Get all notes on a ticket (including child ticket notes)
-- `cw_add_ticket_note` — Add a note to a ticket (discussion, internal, or resolution). Optional `emailContactFlag`, `emailResourceFlag`, `emailCcFlag`, and `emailCc` control who is emailed. **Nothing is emailed unless one of those flags is set** (or you set `processNotifications`). Omitting them does not email the contact. The create response reports `internalFlag` / `externalFlag` from the note type that was stored, so an internal note is not also reported as external.
+- `cw_add_ticket_note` — Add a note to a ticket (discussion, internal, or resolution). **Nothing is emailed unless `processNotifications` is true.** `emailContactFlag`, `emailResourceFlag`, `emailCcFlag`, and `emailCc` are not ServiceNote fields and are not sent (posting them is a ConnectWise 400). A true flag only turns on `processNotifications`. Recipients come from the ticket `automaticEmailContactFlag`, `automaticEmailResourceFlag`, `automaticEmailCcFlag`, and `automaticEmailCc`. Optional `memberId` is sent as `member.id` and sets the author; omit it and Manage attributes the note to the API member. The create response reports `internalFlag` / `externalFlag` from the note type that was stored, so an internal note is not also reported as external.
 
 ### Companies
 - `cw_search_companies` — Search companies
@@ -106,12 +106,12 @@ needed.
 - `cw_search_project_tickets` — Search tickets under a project
 - `cw_get_project_ticket` — Get a specific project ticket by ID
 - `cw_get_project_ticket_notes` — Get all notes on a project ticket (including child ticket notes)
-- `cw_add_project_ticket_note` — Add a note to a project ticket (discussion, internal, or resolution)
+- `cw_add_project_ticket_note` — Add a note to a project ticket (discussion, internal, or resolution). Email flags are not sent. Optional `memberId` sets the author (`member.id`).
 
 ### Time Entries
 - `cw_search_time_entries` — Search time entries
 - `cw_get_time_entry` — Get a time entry by ID
-- `cw_create_time_entry` — Create a new time entry
+- `cw_create_time_entry` — Create a new time entry. `emailContactFlag`, `emailResourceFlag`, and `emailCcFlag` are sent as false unless you set them, so an omitted flag cannot email the ticket contact.
 - `cw_update_time_entry` — Correct a time entry (JSON Patch on `PATCH /time/entries/{id}`). Use this to fix `actualHours` when a metered agreement rounds to 0.25.
 - `cw_delete_time_entry` — Delete a time entry (`DELETE /time/entries/{id}`). Manage rejects deletes of entries that are already billed.
 

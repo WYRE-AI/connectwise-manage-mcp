@@ -54,7 +54,7 @@ describe("ticket note email payload (A1)", () => {
     expect(buildTicketNoteBody({ text: "hello" })).toEqual({ text: "hello" });
   });
 
-  it("forwards email flags only when set, and turns on processNotifications for a true flag", () => {
+  it("turns on processNotifications for a true flag without sending ServiceNote-rejected email fields", () => {
     expect(
       buildTicketNoteBody({
         text: "question for the client",
@@ -65,13 +65,11 @@ describe("ticket note email payload (A1)", () => {
     ).toEqual({
       text: "question for the client",
       detailDescriptionFlag: true,
-      emailContactFlag: true,
-      emailCc: "billing@example.com",
       processNotifications: true,
     });
   });
 
-  it("does not email when flags are explicitly false", () => {
+  it("does not email when flags are explicitly false, and does not send those fields", () => {
     const body = buildTicketNoteBody({
       text: "internal",
       internalAnalysisFlag: true,
@@ -80,9 +78,7 @@ describe("ticket note email payload (A1)", () => {
       emailCcFlag: false,
       emailCc: "nobody@example.com",
     });
-    expect(body.emailContactFlag).toBe(false);
-    expect(body.emailResourceFlag).toBe(false);
-    expect(body.emailCcFlag).toBe(false);
+    expect(body).toEqual({ text: "internal", internalAnalysisFlag: true });
     expect(body.processNotifications).toBeUndefined();
   });
 
@@ -92,19 +88,23 @@ describe("ticket note email payload (A1)", () => {
         text: "hold",
         emailContactFlag: true,
         processNotifications: false,
-      }).processNotifications,
-    ).toBe(false);
+      }),
+    ).toEqual({ text: "hold", processNotifications: false });
   });
 
-  it("emails CC only when emailCcFlag is true", () => {
+  it("requests notification for CC without putting emailCc on the ServiceNote body", () => {
     const body = buildTicketNoteBody({
       text: "copy",
       emailCcFlag: true,
       emailCc: "a@example.com;b@example.com",
     });
-    expect(body.emailCcFlag).toBe(true);
-    expect(body.emailCc).toBe("a@example.com;b@example.com");
-    expect(body.processNotifications).toBe(true);
+    expect(body).toEqual({
+      text: "copy",
+      processNotifications: true,
+      detailDescriptionFlag: true,
+    });
+    expect(body).not.toHaveProperty("emailCcFlag");
+    expect(body).not.toHaveProperty("emailCc");
   });
 });
 
@@ -220,7 +220,9 @@ describe("WYREAI-400 tool wiring", () => {
     for (const field of ["emailContactFlag", "emailResourceFlag", "emailCcFlag", "emailCc"]) {
       expect(byName.cw_add_ticket_note.inputSchema?.properties).toHaveProperty(field);
     }
-    expect(byName.cw_add_ticket_note.description).toMatch(/omitting them does not email/i);
+    expect(byName.cw_add_ticket_note.description).toMatch(/never default to true/i);
+    expect(byName.cw_add_ticket_note.description).toMatch(/not sent/i);
+    expect(byName.cw_add_ticket_note.inputSchema?.properties).toHaveProperty("memberId");
     expect(byName.cw_create_ticket.inputSchema?.properties).toHaveProperty("parentTicketId");
     expect(byName.cw_search_contacts.inputSchema?.properties).toHaveProperty("typeName");
     expect(byName.cw_search_contacts.inputSchema?.properties).toHaveProperty("childConditions");
@@ -277,7 +279,6 @@ describe("WYREAI-400 tool wiring", () => {
     expect(JSON.parse(init.body)).toEqual({
       text: "please confirm",
       internalAnalysisFlag: true,
-      emailContactFlag: false,
     });
     const echoed = JSON.parse(toolText(body)) as { internalFlag: boolean; externalFlag: boolean };
     expect(echoed.internalFlag).toBe(true);
