@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { EntraConfig } from "./types.js";
+import { parseRequestTarget } from "../request-target.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -12,6 +13,15 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
     "Content-Length": Buffer.byteLength(json),
   });
   res.end(json);
+}
+
+/**
+ * An OAuth error code as RFC 6749 defines one: a short token such as
+ * "invalid_grant". Anything else is replaced, so no free text from the
+ * identity provider reaches a log.
+ */
+export function safeOAuthErrorCode(value: unknown): string {
+  return typeof value === "string" && /^[a-z_]{1,40}$/.test(value) ? value : "unrecognised_error";
 }
 
 const MAX_BODY_BYTES = 65_536; // 64 KB — sufficient for any OAuth request body
@@ -139,10 +149,12 @@ export function handleAuthorize(
   res: ServerResponse,
   config: EntraConfig,
 ): void {
-  const incomingUrl = new URL(
-    req.url ?? "/",
-    `https://${req.headers.host ?? "localhost"}`,
-  );
+  // Parsed against a fixed base, never the client-supplied Host header.
+  const incomingUrl = parseRequestTarget(req.url);
+  if (!incomingUrl) {
+    sendJson(res, 400, { error: "invalid_request" });
+    return;
+  }
 
   const azureParams = new URLSearchParams();
 
@@ -215,7 +227,6 @@ export async function handleToken(
 
     const azureBody = await azureRes.text();
     if (azureRes.status !== 200) {
-      console.error(`[token] Azure rejected token exchange — status: ${azureRes.status}, body: ${azureBody}`);
       let sanitized: { error: string; error_description?: string };
       try {
         const parsed = JSON.parse(azureBody) as { error?: string; error_description?: string };
@@ -226,6 +237,15 @@ export async function handleToken(
       } catch {
         sanitized = { error: "invalid_request" };
       }
+      // Log the status and the OAuth error code only. The raw Azure body is
+      // never logged: it can carry tenant detail, trace ids and token material.
+      console.error(
+        JSON.stringify({
+          event: "token_exchange_rejected",
+          status: azureRes.status,
+          error: safeOAuthErrorCode(sanitized.error),
+        }),
+      );
       res.writeHead(azureRes.status, { "Content-Type": "application/json" });
       res.end(JSON.stringify(sanitized));
       return;
@@ -234,7 +254,13 @@ export async function handleToken(
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(azureBody);
   } catch (err) {
-    console.error("[auth] Token proxy error:", err);
+    // The error can hold request detail in its cause chain. Log its name only.
+    console.error(
+      JSON.stringify({
+        event: "token_proxy_error",
+        error: err instanceof Error ? err.name : "unknown",
+      }),
+    );
     res.writeHead(502, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "token_proxy_error", error_description: "Failed to reach Azure AD" }));
   }

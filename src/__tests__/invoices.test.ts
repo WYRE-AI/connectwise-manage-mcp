@@ -262,7 +262,7 @@ describe("cw_update_invoice tool", () => {
     }
   });
 
-  it("passes a Manage 403 through with its message and does not retry", async () => {
+  it("reports a Manage 403 by status and reference, with Manage's code and message, and does not retry", async () => {
     const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ code: "Forbidden", message: "Invoices Edit required" }, 403));
     vi.stubGlobal("fetch", fetchMock);
     const res = await mcp("tools/call", {
@@ -271,7 +271,9 @@ describe("cw_update_invoice tool", () => {
     });
     const result = res.result as ToolResult;
     expect(result.isError).toBe(true);
-    expect(result.content?.[0]?.text).toMatch(/403.*Invoices Edit required/);
+    expect(result.content?.[0]?.text).toMatch(
+      /returned 403 \(reference [0-9a-f-]{36}\): \{"code":"Forbidden","message":"Invoices Edit required"\}$/,
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

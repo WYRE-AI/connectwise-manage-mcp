@@ -226,7 +226,7 @@ describe("ticket note email payload (WYREAI-495)", () => {
     });
     const result = toolResult(body);
     expect(result.isError).toBe(true);
-    expect(result.text).toContain("returned 400:");
+    expect(result.text).toMatch(/returned 400 \(reference [0-9a-f-]{36}\):/);
     expect(result.text).toContain("/project/tickets/50/notes");
     expect(result.text).toContain("ticketNote object is invalid");
   });
@@ -245,7 +245,7 @@ describe("ticket note email payload (WYREAI-495)", () => {
     });
     const result = toolResult(body);
     expect(result.isError).toBe(true);
-    expect(result.text).toContain("returned 400:");
+    expect(result.text).toMatch(/returned 400 \(reference [0-9a-f-]{36}\):/);
     expect(result.text).toContain("serviceNote object is invalid");
     expect(result.text).toContain("Please choose where to display the notes");
   });
