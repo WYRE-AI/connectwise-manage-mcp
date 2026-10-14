@@ -8,7 +8,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
-import { connect, type AddressInfo } from "node:net";
+import { connect } from "node:net";
 import { isValidHostHeader, parseRequestTarget } from "../request-target.js";
 import { handleAuthorize } from "../auth/routes.js";
 import type { EntraConfig } from "../auth/types.js";
