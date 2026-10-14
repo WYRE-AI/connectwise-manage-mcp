@@ -45,7 +45,7 @@ Azure Container Apps (external ingress, port 8080)
      ├── GET  /authorize  → proxies to Entra ID
      ├── POST /token      → proxies to Entra ID
      ├── GET  /health
-     └── POST /mcp        ← MCP JSON-RPC (JWT-validated)
+     └── POST /mcp        ← MCP JSON-RPC (X-Gateway-S2S, then JWT when OAuth is on)
           │
           ▼
      Key Vault (all secrets via Managed Identity)
@@ -315,6 +315,9 @@ az keyvault secret set --vault-name $KEYVAULT_NAME --name "AZURE-REQUIRED-ROLE" 
 az keyvault secret set --vault-name $KEYVAULT_NAME --name "MCP-TRANSPORT"           --value "http"
 az keyvault secret set --vault-name $KEYVAULT_NAME --name "MCP-HTTP-PORT"           --value "8080"
 az keyvault secret set --vault-name $KEYVAULT_NAME --name "MCP-HTTP-HOST"           --value "0.0.0.0"
+# Required to start HTTP. Generate: openssl rand -hex 32
+# Every /mcp request must send X-Gateway-S2S signed with this value (see README).
+az keyvault secret set --vault-name $KEYVAULT_NAME --name "CONDUIT-S2S-SECRET"      --value $CONDUIT_S2S_SECRET
 az keyvault secret set --vault-name $KEYVAULT_NAME --name "AUTH-MODE"               --value "env"
 az keyvault secret set --vault-name $KEYVAULT_NAME --name "MCP-OAUTH-ENABLED"       --value "true"
 
@@ -348,6 +351,7 @@ $KV_URI_REQUIRED_ROLE = az keyvault secret show --vault-name $KEYVAULT_NAME --na
 $KV_URI_TRANSPORT     = az keyvault secret show --vault-name $KEYVAULT_NAME --name "MCP-TRANSPORT"          --query id --output tsv
 $KV_URI_HTTP_PORT     = az keyvault secret show --vault-name $KEYVAULT_NAME --name "MCP-HTTP-PORT"          --query id --output tsv
 $KV_URI_HTTP_HOST     = az keyvault secret show --vault-name $KEYVAULT_NAME --name "MCP-HTTP-HOST"          --query id --output tsv
+$KV_URI_S2S_SECRET    = az keyvault secret show --vault-name $KEYVAULT_NAME --name "CONDUIT-S2S-SECRET"     --query id --output tsv
 $KV_URI_AUTH_MODE     = az keyvault secret show --vault-name $KEYVAULT_NAME --name "AUTH-MODE"              --query id --output tsv
 $KV_URI_OAUTH         = az keyvault secret show --vault-name $KEYVAULT_NAME --name "MCP-OAUTH-ENABLED"      --query id --output tsv
 $KV_URI_BEARER        = az keyvault secret show --vault-name $KEYVAULT_NAME --name "MCP-BEARER-TOKEN"       --query id --output tsv
@@ -432,6 +436,7 @@ az containerapp create `
     "mcp-transport=keyvaultref:$KV_URI_TRANSPORT,identityref:$IDENTITY_RESOURCE_ID" `
     "mcp-http-port=keyvaultref:$KV_URI_HTTP_PORT,identityref:$IDENTITY_RESOURCE_ID" `
     "mcp-http-host=keyvaultref:$KV_URI_HTTP_HOST,identityref:$IDENTITY_RESOURCE_ID" `
+    "conduit-s2s-secret=keyvaultref:$KV_URI_S2S_SECRET,identityref:$IDENTITY_RESOURCE_ID" `
     "auth-mode=keyvaultref:$KV_URI_AUTH_MODE,identityref:$IDENTITY_RESOURCE_ID" `
     "mcp-oauth-enabled=keyvaultref:$KV_URI_OAUTH,identityref:$IDENTITY_RESOURCE_ID" `
     "mcp-bearer-token=keyvaultref:$KV_URI_BEARER,identityref:$IDENTITY_RESOURCE_ID" `
@@ -451,6 +456,7 @@ az containerapp create `
     "MCP_TRANSPORT=secretref:mcp-transport" `
     "MCP_HTTP_PORT=secretref:mcp-http-port" `
     "MCP_HTTP_HOST=secretref:mcp-http-host" `
+    "CONDUIT_S2S_SECRET=secretref:conduit-s2s-secret" `
     "AUTH_MODE=secretref:auth-mode" `
     "MCP_OAUTH_ENABLED=secretref:mcp-oauth-enabled" `
     "MCP_BEARER_TOKEN=secretref:mcp-bearer-token" `
@@ -489,6 +495,7 @@ az containerapp create `
     "mcp-transport=keyvaultref:$KV_URI_TRANSPORT,identityref:$IDENTITY_RESOURCE_ID" `
     "mcp-http-port=keyvaultref:$KV_URI_HTTP_PORT,identityref:$IDENTITY_RESOURCE_ID" `
     "mcp-http-host=keyvaultref:$KV_URI_HTTP_HOST,identityref:$IDENTITY_RESOURCE_ID" `
+    "conduit-s2s-secret=keyvaultref:$KV_URI_S2S_SECRET,identityref:$IDENTITY_RESOURCE_ID" `
     "auth-mode=keyvaultref:$KV_URI_AUTH_MODE,identityref:$IDENTITY_RESOURCE_ID" `
     "mcp-oauth-enabled=keyvaultref:$KV_URI_OAUTH,identityref:$IDENTITY_RESOURCE_ID" `
     "mcp-bearer-token=keyvaultref:$KV_URI_BEARER,identityref:$IDENTITY_RESOURCE_ID" `
@@ -508,6 +515,7 @@ az containerapp create `
     "MCP_TRANSPORT=secretref:mcp-transport" `
     "MCP_HTTP_PORT=secretref:mcp-http-port" `
     "MCP_HTTP_HOST=secretref:mcp-http-host" `
+    "CONDUIT_S2S_SECRET=secretref:conduit-s2s-secret" `
     "AUTH_MODE=secretref:auth-mode" `
     "MCP_OAUTH_ENABLED=secretref:mcp-oauth-enabled" `
     "MCP_BEARER_TOKEN=secretref:mcp-bearer-token" `
