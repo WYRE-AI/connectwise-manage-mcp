@@ -18,8 +18,15 @@
  *   CW_MANAGE_REJECT_UNAUTHORIZED - Set to "false" for self-signed certs (default: "true")
  *   MCP_TRANSPORT               - "stdio" (default) or "http"
  *   MCP_HTTP_PORT               - HTTP port (default: 8080)
- *   MCP_HTTP_HOST               - HTTP host (default: 0.0.0.0)
+ *   MCP_HTTP_HOST               - HTTP bind address. Defaults to 127.0.0.1.
+ *                                 Honored only when CONDUIT_S2S_SECRET is set.
+ *                                 Without a secret, MCP_ALLOW_INSECURE_DEV=1
+ *                                 forces 127.0.0.1.
  *   AUTH_MODE                   - "env" (default) or "gateway" for header-based auth
+ *   CONDUIT_S2S_SECRET          - Required to start HTTP. Empty and known
+ *                                 placeholders refuse to start.
+ *   MCP_ALLOW_INSECURE_DEV      - Set to "1" to start HTTP without a secret.
+ *                                 Listens on 127.0.0.1 only. Local development.
  *
  * Entra ID OAuth 2.1 (optional — set MCP_OAUTH_ENABLED=true to activate):
  *   MCP_OAUTH_ENABLED           - Enable Entra ID auth middleware (default: false)
@@ -58,11 +65,96 @@ import {
 import { verifyS2sHeader, S2S_HEADER } from "./s2s-verify.js";
 import { isValidHostHeader, parseRequestTarget } from "./request-target.js";
 
-// Conduit service-to-service auth (gateway#377 parity). Non-empty =
-// enforce X-Gateway-S2S on every /mcp request; empty = disabled, behavior
-// exactly as before (dark-by-default until the gateway provisions this
-// container's derived subkey). See src/s2s-verify.ts.
-const S2S_SECRET = process.env.CONDUIT_S2S_SECRET || "";
+/**
+ * Public example values. A copied placeholder must not verify as a real
+ * secret, and MCP_ALLOW_INSECURE_DEV does not bypass this list.
+ */
+const KNOWN_PLACEHOLDER_SECRETS = new Set([
+  "replace-with-a-real-secret",
+  "your-s2s-secret",
+  "your-secret",
+  "changeme",
+  "change-me",
+  "placeholder",
+  "secret",
+  "example",
+  "replace-me",
+  "s2s-secret",
+]);
+
+const LOOPBACK_HOST = "127.0.0.1";
+
+const MISSING_S2S_SECRET_ERROR =
+  "Refusing to start HTTP transport: CONDUIT_S2S_SECRET is empty. " +
+  "An empty secret would accept unauthenticated /mcp requests (CWE-306). " +
+  "Set CONDUIT_S2S_SECRET to the gateway-provisioned service-to-service secret, " +
+  "or set MCP_ALLOW_INSECURE_DEV=1 to bypass this check for local development only.";
+
+const PLACEHOLDER_S2S_SECRET_ERROR =
+  "Refusing to start HTTP transport: CONDUIT_S2S_SECRET is a known placeholder. " +
+  "Generate a secret with `openssl rand -hex 32` and set CONDUIT_S2S_SECRET to that value.";
+
+const INSECURE_DEV_WARNING =
+  "SECURITY WARNING: CONDUIT_S2S_SECRET is empty and MCP_ALLOW_INSECURE_DEV=1. " +
+  "HTTP /mcp is starting WITHOUT service-to-service authentication and listens on 127.0.0.1 only. " +
+  "Do not use MCP_ALLOW_INSECURE_DEV outside local development.";
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** Hosts that are already loopback. The insecure-dev bypass still binds 127.0.0.1. */
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[(.+)\]$/, "$1");
+  if (normalized === "localhost" || normalized === "::1" || normalized === "127.0.0.1") {
+    return true;
+  }
+  const bare = normalized.startsWith("::ffff:") ? normalized.slice("::ffff:".length) : normalized;
+  const parts = bare.split(".");
+  if (parts.length !== 4) return false;
+  if (parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
+  return parts[0] === "127";
+}
+
+/**
+ * Secret for X-Gateway-S2S on /mcp. Read at HTTP startup, not module load.
+ * Empty fails closed unless MCP_ALLOW_INSECURE_DEV=1. A known placeholder
+ * always fails closed. The secret value is never written to logs.
+ */
+function resolveHttpS2sSecret(): string {
+  const secret = (process.env.CONDUIT_S2S_SECRET ?? "").trim();
+  if (KNOWN_PLACEHOLDER_SECRETS.has(secret.toLowerCase())) {
+    console.error(PLACEHOLDER_S2S_SECRET_ERROR);
+    process.exit(1);
+  }
+  if (secret) return secret;
+
+  if (process.env.MCP_ALLOW_INSECURE_DEV === "1") {
+    console.error(INSECURE_DEV_WARNING);
+    return "";
+  }
+
+  console.error(MISSING_S2S_SECRET_ERROR);
+  process.exit(1);
+}
+
+/**
+ * No secret (insecure-dev bypass only): always 127.0.0.1, including when
+ * MCP_HTTP_HOST is a wider address such as 0.0.0.0.
+ * A configured secret honors MCP_HTTP_HOST. Unset defaults to 127.0.0.1.
+ */
+function resolveListenHost(s2sSecret: string): string {
+  const configured = (process.env.MCP_HTTP_HOST ?? "").trim();
+  if (s2sSecret) return configured || LOOPBACK_HOST;
+  if (configured && !isLoopbackHost(configured)) {
+    console.error(
+      `WARNING: MCP_HTTP_HOST=${configured} is not a loopback address. ` +
+        "MCP_ALLOW_INSECURE_DEV=1 without CONDUIT_S2S_SECRET cannot listen there. " +
+        `Binding ${LOOPBACK_HOST} only.`,
+    );
+  }
+  return LOOPBACK_HOST;
+}
 
 // ---------------------------------------------------------------------------
 // Transport: stdio
@@ -81,9 +173,13 @@ async function startStdioTransport(): Promise<void> {
 
 let httpServer: HttpServer | undefined;
 
-async function startHttpTransport(): Promise<void> {
+export async function startHttpTransport(): Promise<HttpServer> {
+  const s2sSecret = resolveHttpS2sSecret();
   const port = parseInt(process.env.MCP_HTTP_PORT || "8080", 10);
-  const host = process.env.MCP_HTTP_HOST || "0.0.0.0";
+  // Loopback unless the operator opts into a wider bind. A wider bind is
+  // honored only when CONDUIT_S2S_SECRET is set. The insecure-dev bypass
+  // always listens on 127.0.0.1, including when the image sets 0.0.0.0.
+  const host = resolveListenHost(s2sSecret);
   const authMode = process.env.AUTH_MODE || "env";
   const isGatewayMode = authMode === "gateway";
 
@@ -183,7 +279,10 @@ async function startHttpTransport(): Promise<void> {
 
     // MCP endpoint - stateless: fresh server + transport per request
     if (url.pathname === "/mcp") {
-      if (S2S_SECRET && !verifyS2sHeader(req.headers[S2S_HEADER] as string | undefined, S2S_SECRET)) {
+      // Empty s2sSecret is only reachable when MCP_ALLOW_INSECURE_DEV=1;
+      // startup refuses otherwise. A configured secret is always enforced,
+      // before any credential extraction.
+      if (s2sSecret && !verifyS2sHeader(headerValue(req.headers[S2S_HEADER]), s2sSecret)) {
         res.writeHead(401, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
@@ -269,8 +368,12 @@ async function startHttpTransport(): Promise<void> {
         // ------------------------------------------------------------------
         let configOverride: CwManageConfig | undefined;
         if (isGatewayMode) {
-          const { config, error } = resolveGatewayConfig(
-            (name) => req.headers[name] as string | undefined,
+          // Gateway mode: credentials must arrive on every request via the
+          // X-CW-* headers. Reject explicitly when any required header is
+          // missing. Falling through would resolve CW_MANAGE_* from the
+          // process environment, which is not request-scoped.
+          const { config, error } = resolveGatewayConfig((name) =>
+            headerValue(req.headers[name]),
           );
           if (error) {
             res.writeHead(401, { "Content-Type": "application/json" });
@@ -346,6 +449,8 @@ async function startHttpTransport(): Promise<void> {
       resolve();
     });
   });
+
+  return httpServer!;
 }
 
 // ---------------------------------------------------------------------------
@@ -383,4 +488,8 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch(console.error);
+// Vitest imports this module to call startHttpTransport. Skip the CLI
+// entrypoint there. `node dist/index.js` still starts stdio or HTTP.
+if (process.env.VITEST !== "true") {
+  main().catch(console.error);
+}
