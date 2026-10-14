@@ -212,6 +212,25 @@ describe("ticket note email payload (WYREAI-495)", () => {
     });
   });
 
+  it("returns a project-note ConnectWise 400 body on the tool error", async () => {
+    const cwBody = JSON.stringify({
+      code: "InvalidObject",
+      message: "ticketNote object is invalid",
+      errors: [{ message: "member id 999 was not found" }],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse(cwBody, 400)));
+
+    const body = await mcp("tools/call", {
+      name: "cw_add_project_ticket_note",
+      arguments: { id: 50, text: "project note", memberId: 999 },
+    });
+    const result = toolResult(body);
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("returned 400:");
+    expect(result.text).toContain("/project/tickets/50/notes");
+    expect(result.text).toContain("ticketNote object is invalid");
+  });
+
   it("returns the ConnectWise 400 body on the tool error", async () => {
     const cwBody = JSON.stringify({
       code: "InvalidObject",

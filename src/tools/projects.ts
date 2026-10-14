@@ -128,13 +128,18 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
         memberId,
       });
 
-      const result = await client.post<Record<string, unknown>>(`/project/tickets/${id}/notes`, body);
-      const mapped = mapCreatedNoteResponse(result, {
-        detailDescriptionFlag,
-        internalAnalysisFlag,
-        resolutionFlag,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(mapped, null, 2) }] };
+      try {
+        const result = await client.post<Record<string, unknown>>(`/project/tickets/${id}/notes`, body);
+        const mapped = mapCreatedNoteResponse(result, {
+          detailDescriptionFlag,
+          internalAnalysisFlag,
+          resolutionFlag,
+        });
+        return { content: [{ type: "text" as const, text: JSON.stringify(mapped, null, 2) }] };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text" as const, text: msg }], isError: true as const };
+      }
     },
   );
 
