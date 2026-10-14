@@ -81,13 +81,18 @@ export function buildConfig(
 export function resolveGatewayConfig(
   getHeader: (lowerName: string) => string | undefined,
 ): { config?: CwManageConfig; error?: string } {
-  return buildConfig(
+  const result = buildConfig(
     getHeader("x-cw-company-id"),
     getHeader("x-cw-public-key"),
     getHeader("x-cw-private-key"),
     getHeader("x-cw-client-id"),
     getHeader("x-cw-url"),
   );
+  // The caller picks this URL, so the client checks it before every request.
+  if (result.config && getHeader("x-cw-url")) {
+    result.config.untrustedBaseUrl = true;
+  }
+  return result;
 }
 
 /**
