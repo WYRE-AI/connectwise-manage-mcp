@@ -10,6 +10,7 @@
  */
 
 const FIXED_BASE = "http://localhost";
+const FIXED_HOST = new URL(FIXED_BASE).host;
 
 /**
  * @param target The raw request target, `req.url`.
@@ -21,15 +22,22 @@ export function parseRequestTarget(target: string | undefined): URL | null {
 
   // Origin-form only. "//host/path" is a network-path reference that would
   // replace the fixed base, and an absolute-form target carries its own host.
-  if (!raw.startsWith("/") || raw.startsWith("//")) {
+  // WHATWG URL parsing reads a backslash as a slash in an http URL, so "/\host"
+  // is the same network-path reference.
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
     return null;
   }
 
+  let url: URL;
   try {
-    return new URL(raw, FIXED_BASE);
+    url = new URL(raw, FIXED_BASE);
   } catch {
     return null;
   }
+  // WHATWG URL parsing also drops tab and newline before it reads the target,
+  // so "/\t/host" becomes "//host". Whatever the prefix, a target that moves
+  // the host off the fixed base is not origin-form.
+  return url.host === FIXED_HOST ? url : null;
 }
 
 /**

@@ -31,12 +31,21 @@ describe("parseRequestTarget", () => {
     ["an asterisk-form target", "*"],
     ["an authority-form target", "evil.example:443"],
     ["a relative path", "mcp"],
+    ["a backslash network-path reference", "/\\evil.example/health"],
+    ["a network-path reference split by a tab", "/\t/evil.example"],
+    ["a network-path reference split by a newline", "/\n/evil.example"],
+    ["a network-path reference split by a carriage return", "/\r/evil.example/mcp"],
   ])("rejects %s", (_label, target) => {
     expect(parseRequestTarget(target)).toBeNull();
   });
 
   it("never takes its host from the target", () => {
     expect(parseRequestTarget("/mcp")?.host).toBe("localhost");
+  });
+
+  it("still parses a path that holds a backslash or a tab after its first segment", () => {
+    expect(parseRequestTarget("/a\\b")?.host).toBe("localhost");
+    expect(parseRequestTarget("/mcp?q=a\tb")?.host).toBe("localhost");
   });
 });
 
