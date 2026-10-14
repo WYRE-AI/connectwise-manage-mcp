@@ -7,11 +7,12 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { connect, type AddressInfo } from "node:net";
 import { isValidHostHeader, parseRequestTarget } from "../request-target.js";
 import { handleAuthorize } from "../auth/routes.js";
 import type { EntraConfig } from "../auth/types.js";
+import { startHttpTransport } from "../index.js";
 
 describe("parseRequestTarget", () => {
   it("parses an origin-form target with its path and query", () => {
@@ -119,6 +120,7 @@ describe("handleAuthorize", () => {
 
 describe("HTTP server with a malformed Host header", () => {
   let port = 0;
+  let server: HttpServer;
 
   /** Send one raw HTTP/1.1 request and resolve with the status code. */
   function rawRequest(requestLine: string, host: string): Promise<number> {
@@ -145,33 +147,28 @@ describe("HTTP server with a malformed Host header", () => {
   }
 
   beforeAll(async () => {
-    // Find a free port, then start the real server on it by importing the
-    // entry point, which starts its transport on import.
-    port = await new Promise<number>((resolve) => {
-      const probe = createServer();
-      probe.listen(0, "127.0.0.1", () => {
-        const found = (probe.address() as AddressInfo).port;
-        probe.close(() => resolve(found));
-      });
-    });
-    process.env.MCP_TRANSPORT = "http";
+    // HTTP startup fails closed without a secret. The insecure-dev bypass
+    // listens on 127.0.0.1 and still runs this request listener. Vitest skips
+    // the CLI entrypoint, so start the transport directly.
+    process.env.MCP_ALLOW_INSECURE_DEV = "1";
+    delete process.env.CONDUIT_S2S_SECRET;
     process.env.MCP_HTTP_HOST = "127.0.0.1";
-    process.env.MCP_HTTP_PORT = String(port);
-    await import("../index.js");
-    // main() is not awaited by the module, so wait until the port answers.
-    for (let attempt = 0; attempt < 50; attempt++) {
-      try {
-        await rawRequest("GET /health", "localhost");
-        return;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+    process.env.MCP_HTTP_PORT = "0";
+    server = await startHttpTransport();
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("expected a TCP listen address");
     }
-    throw new Error("server did not start");
+    port = address.port;
   });
 
-  afterAll(() => {
-    delete process.env.MCP_TRANSPORT;
+  afterAll(async () => {
+    if (server?.listening) {
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+    delete process.env.MCP_ALLOW_INSECURE_DEV;
     delete process.env.MCP_HTTP_HOST;
     delete process.env.MCP_HTTP_PORT;
   });
