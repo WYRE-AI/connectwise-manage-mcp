@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const lookupMock = vi.hoisted(() => vi.fn());
-vi.mock("node:dns/promises", () => ({ lookup: lookupMock }));
+const resolve4Mock = vi.hoisted(() => vi.fn());
+const resolve6Mock = vi.hoisted(() => vi.fn());
+vi.mock("node:dns/promises", () => ({
+  lookup: lookupMock,
+  resolve4: resolve4Mock,
+  resolve6: resolve6Mock,
+}));
 
 import { CwManageClient, type CwManageConfig } from "../api-client.js";
 import { resolveGatewayConfig } from "../mcp-server.js";
@@ -76,6 +82,41 @@ describe("assertSafeGatewayUrl", () => {
   it("rejects a hostname that does not resolve", async () => {
     lookupMock.mockRejectedValue(new Error("ENOTFOUND"));
     await expect(assertSafeGatewayUrl("https://nope.example.com")).rejects.toThrow(/did not resolve/);
+  });
+
+  it("checks an IP-literal host without a DNS lookup", async () => {
+    await expect(assertSafeGatewayUrl("https://127.0.0.1")).rejects.toThrow(/non-public/);
+    await expect(assertSafeGatewayUrl("https://[::1]")).rejects.toThrow(/non-public/);
+    await expect(assertSafeGatewayUrl("https://8.8.8.8")).resolves.toBeUndefined();
+    expect(lookupMock).not.toHaveBeenCalled();
+  });
+
+  describe("when dns.lookup is not implemented (Cloudflare Workers)", () => {
+    beforeEach(() => {
+      lookupMock.mockRejectedValue(new Error("lookup is not implemented"));
+      resolve4Mock.mockReset();
+      resolve6Mock.mockReset();
+    });
+
+    it("falls back to resolve4/resolve6", async () => {
+      resolve4Mock.mockResolvedValue(["203.0.113.10"]);
+      resolve6Mock.mockRejectedValue(new Error("ENODATA"));
+      await expect(assertSafeGatewayUrl("https://cw.example.com")).resolves.toBeUndefined();
+    });
+
+    it("still rejects a non-public address from the fallback", async () => {
+      resolve4Mock.mockResolvedValue(["203.0.113.10"]);
+      resolve6Mock.mockResolvedValue(["fd00::1"]);
+      await expect(assertSafeGatewayUrl("https://cw.example.com")).rejects.toThrow(/non-public/);
+    });
+
+    it("keeps the original error as the cause when nothing resolves", async () => {
+      resolve4Mock.mockRejectedValue(new Error("ENOTFOUND"));
+      resolve6Mock.mockRejectedValue(new Error("ENOTFOUND"));
+      const err = await assertSafeGatewayUrl("https://nope.example.com").catch((e) => e);
+      expect(err.message).toMatch(/did not resolve/);
+      expect((err.cause as Error).message).toMatch(/not implemented/);
+    });
   });
 });
 

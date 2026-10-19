@@ -6,7 +6,7 @@
  * Env-mode URLs (CW_MANAGE_URL) are set by the operator and skip this check,
  * since a self-hoster may legitimately point at a server on their own LAN.
  */
-import { lookup } from "node:dns/promises";
+import { lookup, resolve4, resolve6 } from "node:dns/promises";
 
 export class UnsafeUrlError extends Error {}
 
@@ -36,13 +36,41 @@ export async function assertSafeGatewayUrl(input: string): Promise<void> {
 
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
   let addrs: { address: string }[];
-  try {
-    addrs = await lookup(hostname, { all: true, verbatim: true });
-  } catch {
-    throw new UnsafeUrlError("ConnectWise URL hostname did not resolve.");
+  if (isIpLiteral(hostname)) {
+    addrs = [{ address: hostname }];
+  } else {
+    try {
+      addrs = await resolveAll(hostname);
+    } catch (err) {
+      throw new UnsafeUrlError("ConnectWise URL hostname did not resolve.", { cause: err });
+    }
   }
   if (addrs.length === 0 || addrs.some((a) => !isPublicIp(a.address))) {
     throw new UnsafeUrlError("ConnectWise URL points to a non-public address.");
+  }
+}
+
+function isIpLiteral(host: string): boolean {
+  // URL() already normalizes IP literals; v6 hosts are the only ones containing ":".
+  return parseIpv4(host) !== null || host.includes(":");
+}
+
+/**
+ * Resolves every address for `hostname`. Cloudflare Workers (nodejs_compat)
+ * does not implement dns.lookup, so fall back to resolve4/resolve6 there.
+ */
+async function resolveAll(hostname: string): Promise<{ address: string }[]> {
+  try {
+    return await lookup(hostname, { all: true, verbatim: true });
+  } catch (err) {
+    if (!/not implemented/i.test(String((err as Error)?.message))) throw err;
+    const [v4, v6] = await Promise.allSettled([resolve4(hostname), resolve6(hostname)]);
+    const out = [
+      ...(v4.status === "fulfilled" ? v4.value : []),
+      ...(v6.status === "fulfilled" ? v6.value : []),
+    ].map((address) => ({ address }));
+    if (out.length === 0) throw err;
+    return out;
   }
 }
 
