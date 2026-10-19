@@ -19,6 +19,7 @@
  * any operator's brand.
  */
 import { App } from "@modelcontextprotocol/ext-apps";
+import { resolveCardFromToolResult } from "./resolve-card";
 
 interface Brand {
   name?: string;
@@ -198,25 +199,15 @@ function render(t: TicketCard): void {
   root.replaceChildren(el("div", "card", el("div", "card__bar"), body));
 }
 
-// connectwise-manage-mcp returns the ticket JSON directly and attaches the
-// normalized card to cw_get_ticket results as _card.
-function extractCard(obj: unknown): TicketCard | null {
-  const card = (obj as { _card?: TicketCard })?._card;
-  return card && typeof card.id === "number" && typeof card.summary === "string" ? card : null;
-}
-
 applyBrand();
 
 // Must be set before connect() so the initial tool-result isn't missed.
-app.ontoolresult = (result: { content?: Array<{ type: string; text?: string }> }) => {
-  const payload = (result.content ?? []).find((c) => c.type === "text");
-  if (!payload?.text) return;
-  try {
-    const card = extractCard(JSON.parse(payload.text));
-    if (card) render(card);
-  } catch {
-    /* ignore malformed payloads */
-  }
+app.ontoolresult = (result: {
+  structuredContent?: unknown;
+  content?: Array<{ type: string; text?: string }>;
+}) => {
+  const card = resolveCardFromToolResult(result);
+  if (card) render(card as TicketCard);
 };
 
 app.connect();
