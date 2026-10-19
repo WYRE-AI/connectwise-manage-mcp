@@ -64,10 +64,10 @@ const REQUEST_TIMEOUT_MS = 30_000;
  * The message is "ConnectWise API {METHOD} {path} returned {status}
  * (reference {id})". It never holds the upstream response body, and neither
  * does this object: the body is read once in the constructor to pull the
- * allowlisted detail out of a 400 or a 403, then dropped. A 400 message ends
- * with that detail so the caller can see which field was refused, and a 403
- * message with ConnectWise's code and message so the caller can see which
- * permission is missing.
+ * allowlisted, redacted validation detail out of a 4xx, then dropped. A 4xx
+ * message ends with that detail so the caller can see which field or
+ * permission was refused. A 5xx and every other status keep only the status
+ * and the reference.
  *
  * `status` lets callers branch on the HTTP code (e.g. retry policy) without
  * parsing the message. `reference` matches the log line written for the
@@ -223,7 +223,7 @@ export class CwManageClient {
     }
 
     if (!response.ok) {
-      // The body is read only so a 400 or a 403 can keep its allowlisted detail. It is
+      // The body is read only so a 4xx can keep its allowlisted detail. It is
       // never logged and never reaches the caller.
       const errorBody = await response.text().catch(() => "");
       const error = new CwApiError(method, path, response.status, errorBody);

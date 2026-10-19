@@ -16,6 +16,8 @@ import {
   MAX_DETAIL_STRING,
   MAX_DETAIL_TOTAL,
   formatErrorDetail,
+  looksInternal,
+  redactSecrets,
   safeErrorDetail,
 } from "../safe-error.js";
 import { handleToken, safeOAuthErrorCode } from "../auth/routes.js";
@@ -89,9 +91,39 @@ describe("safeErrorDetail", () => {
     expect(JSON.stringify(detail)).not.toContain("INTERNAL-STACK-TRACE");
   });
 
-  it.each([401, 404, 409, 429, 500, 502])("gives no detail for a %i", (status) => {
-    const body = JSON.stringify({ code: "Whatever", message: SECRET_BODY_TEXT });
+  it.each([404, 409, 422])("keeps code, message and errors of a %i", (status) => {
+    const body = JSON.stringify({
+      code: "Whatever",
+      message: "something is wrong",
+      errors: [{ code: "c", message: "m", resource: "r", field: "f" }],
+    });
+    expect(safeErrorDetail(status, body)).toEqual({
+      code: "Whatever",
+      message: "something is wrong",
+      errors: [{ code: "c", message: "m", resource: "r", field: "f" }],
+    });
+  });
+
+  it.each([100, 200, 302, 500, 502, 503])("gives no detail for a %i", (status) => {
+    const body = JSON.stringify({
+      code: "Whatever",
+      message: "validation failed",
+      errors: [{ field: "summary", message: "summary is required" }],
+    });
     expect(safeErrorDetail(status, body)).toBeUndefined();
+  });
+
+  it.each([500, 502, 503])("ends the CwApiError message at the reference for a %i", (status) => {
+    const body = JSON.stringify({ code: "InvalidObject", errors: [{ field: "summary", message: "required" }] });
+    const error = new CwApiError("POST", "/service/tickets", status, body);
+    expect(error.detail).toBeUndefined();
+    expect(error.message).toMatch(/\(reference [0-9a-f-]{36}\)$/);
+  });
+
+  it("uses an ASP.NET-style Message when there is no lowercase message", () => {
+    expect(safeErrorDetail(400, JSON.stringify({ Message: "The request is invalid." }))).toEqual({
+      message: "The request is invalid.",
+    });
   });
 
   it("keeps code and message of a 403, so the missing permission is named", () => {
@@ -102,7 +134,7 @@ describe("safeErrorDetail", () => {
     });
   });
 
-  it("takes nothing else from a 403 body, not even the per-field errors a 400 keeps", () => {
+  it("keeps the per-field errors of a 403 too, and nothing else", () => {
     const body = JSON.stringify({
       code: "Forbidden",
       message: "no access",
@@ -113,8 +145,84 @@ describe("safeErrorDetail", () => {
 
     const detail = safeErrorDetail(403, body);
 
-    expect(detail).toEqual({ code: "Forbidden", message: "no access" });
+    expect(detail).toEqual({
+      code: "Forbidden",
+      message: "no access",
+      errors: [{ code: "x", message: "y", resource: "invoice", field: "status" }],
+    });
     expect(JSON.stringify(detail)).not.toContain("INTERNAL-STACK-TRACE");
+  });
+
+  describe("internal diagnostic detail", () => {
+    it.each([
+      "   at Foo.Bar(String x)",
+      "at Server.Handler line 42",
+      "Foo.cs:line 12",
+      "failed at app/file.js:10:5",
+      "A Stack Trace follows",
+      "INTERNAL-STACK-TRACE",
+      "System.NullReferenceException",
+      "InvalidOperationException: boom",
+      "<html><body>oops</body></html>",
+      "<!DOCTYPE html>",
+      "<body>",
+    ])("recognises %j", (text) => {
+      expect(looksInternal(text)).toBe(true);
+      expect(safeErrorDetail(400, JSON.stringify({ message: text }))).toBeUndefined();
+    });
+
+    it("leaves ordinary messages alone", () => {
+      for (const text of ["summary is required", "Look at the board line items", "Exception handling is off"]) {
+        expect(looksInternal(text)).toBe(false);
+      }
+    });
+
+    it("drops only the offending field and keeps the rest", () => {
+      const body = JSON.stringify({
+        code: "InvalidObject",
+        message: "at X.Y line 42",
+        errors: [{ field: "summary", message: "summary is required" }, { message: "System.NullReferenceException" }],
+      });
+      expect(safeErrorDetail(400, body)).toEqual({
+        code: "InvalidObject",
+        errors: [{ field: "summary", message: "summary is required" }],
+      });
+    });
+  });
+
+  describe("redaction", () => {
+    const BASIC = `Basic ${Buffer.from("acme+pub:priv").toString("base64")}`;
+    const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJlMTIz";
+    const LONG = "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0";
+
+    it.each([
+      ["Basic credentials", BASIC, BASIC.slice(6)],
+      ["Bearer credentials", "Bearer abcDEF123456xyz", "abcDEF123456xyz"],
+      ["a JWT", `token was ${JWT}`, JWT],
+      ["a password pair", "password=hunter2", "hunter2"],
+      ["an api key pair", "apiKey: abc123def456", "abc123def456"],
+      ["an Authorization header", `Authorization: ${BASIC}`, BASIC.slice(6)],
+      ["a clientId pair", "clientId=11111111-aaaa", "11111111-aaaa"],
+      ["a 40-character token", `value ${LONG} end`, LONG],
+    ])("redacts %s", (_label, input, secret) => {
+      const detail = safeErrorDetail(400, JSON.stringify({ message: input, errors: [{ message: input }] }));
+      expect(detail?.message).toContain("[redacted]");
+      expect(detail?.errors?.[0].message).toContain("[redacted]");
+      expect(JSON.stringify(detail)).not.toContain(secret);
+      expect(redactSecrets(input)).not.toContain(secret);
+    });
+
+    it("leaves normal text alone", () => {
+      const text = "communicationItems is required";
+      expect(redactSecrets(text)).toBe(text);
+      expect(redactSecrets("Basic information is missing")).toBe("Basic information is missing");
+      expect(safeErrorDetail(400, JSON.stringify({ message: text }))?.message).toBe(text);
+    });
+
+    it("redacts before the length cap", () => {
+      const detail = safeErrorDetail(400, JSON.stringify({ message: `${"x ".repeat(95)}${LONG}` }));
+      expect(detail?.message).not.toContain(LONG.slice(0, 20));
+    });
   });
 
   it("cleans and caps the code and message of a 403 at 200 characters each", () => {
@@ -266,6 +374,23 @@ describe("CwManageClient on a failed response", () => {
     expect(error.message).toContain('"field":"summary"');
     expect(error.message).not.toContain("INTERNAL-STACK-TRACE");
     expect(logged()).not.toContain("summary is required");
+  });
+
+  it("names the refused field on a PATCH of a contact, and keeps it out of the log", async () => {
+    const body = JSON.stringify({
+      code: "InvalidObject",
+      errors: [{ code: "InvalidValue", message: "title is too long", field: "title" }],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(body, 400)));
+
+    const error = (await client()
+      .patch("/company/contacts/42", [{ op: "replace", path: "title", value: "x" }])
+      .catch((err: unknown) => err)) as CwApiError;
+
+    expect(error.message).toContain('"field":"title"');
+    expect(error.message).toContain("title is too long");
+    expect(logged()).not.toContain("title is too long");
+    expect(logged()).not.toContain("InvalidValue");
   });
 
   it("names the missing permission on a 403, and keeps the rest of the body out", async () => {
