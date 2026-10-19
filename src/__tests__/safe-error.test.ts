@@ -252,6 +252,19 @@ describe("safeErrorDetail", () => {
     it("keeps leading hyphens when redacting a flag-style pair", () => {
       expect(redactSecrets("--token=abc123")).toBe("--[redacted]");
     });
+
+    it("redacts a secret pair nested in the value of a non-secret pair", () => {
+      expect(redactSecrets("field=token=abc123")).not.toContain("abc123");
+    });
+
+    it("redacts a secret pair nested in a quoted value", () => {
+      expect(redactSecrets('detail: "password=hunter2"')).not.toContain("hunter2");
+    });
+
+    it("returns a long hyphen-only run unchanged", () => {
+      const run = "-".repeat(20000);
+      expect(redactSecrets(run)).toBe(run);
+    });
   });
 
   it("cleans and caps the code and message of a 403 at 200 characters each", () => {

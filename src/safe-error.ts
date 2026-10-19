@@ -48,12 +48,33 @@ const SECRET_KEYS =
   "password|passwd|secret|token|api[_-]?key|private[_-]?key|public[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|sessionid";
 
 const SECRET_PAIR = new RegExp(
-  `(?<![\\w-])(-*)([\\w-]+)(["']?\\s*[:=]\\s*)(?:"[^"]*"|'[^']*'|[^\\s,;&]+)`,
+  `(?<![\\w-])(-*)(\\w[\\w-]*)(["']?\\s*[:=]\\s*)("[^"]*"|'[^']*'|[^\\s,;&]+)`,
   "g",
 );
 
 // Unanchored, so a secret word matches as a prefix, suffix or infix of the key.
 const SECRET_KEY = new RegExp(SECRET_KEYS, "i");
+
+/**
+ * Redact secret-keyed pairs. A non-secret pair keeps its key, and its value is
+ * scanned again so a nested pair ("field=token=abc") is caught. The value is
+ * always shorter than the text, so the recursion ends.
+ */
+function redactPairs(text: string): string {
+  return text.replace(SECRET_PAIR, redactPair);
+}
+
+function redactPair(
+  _match: string,
+  hyphens: string,
+  key: string,
+  separator: string,
+  value: string,
+): string {
+  return SECRET_KEY.test(key)
+    ? `${hyphens}${REDACTED}`
+    : `${hyphens}${key}${separator}${redactPairs(value)}`;
+}
 
 /** Replace credentials and key-like values in `text` with "[redacted]". */
 export function redactSecrets(text: string): string {
@@ -67,9 +88,7 @@ export function redactSecrets(text: string): string {
       // JWTs.
       .replace(/\beyJ[\w-]*\.[\w-]+\.[\w-]+/g, REDACTED)
       // key=value and key: value pairs with a secret-looking key.
-      .replace(SECRET_PAIR, (match, hyphens: string, key: string) =>
-        SECRET_KEY.test(key) ? `${hyphens}${REDACTED}` : match,
-      )
+      .replace(SECRET_PAIR, redactPair)
       // Long opaque runs that hold a digit: keys and tokens, not words.
       .replace(/[A-Za-z0-9+/=_-]{32,}/g, (run) => (/\d/.test(run) ? REDACTED : run))
   );
