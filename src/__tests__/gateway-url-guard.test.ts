@@ -156,5 +156,27 @@ describe("CwManageClient with a gateway-supplied URL", () => {
 
     expect(lookupMock).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    // Env mode still follows redirects (a self-hosted API may 301 to its
+    // canonical HTTPS origin). Gateway mode alone uses redirect: "manual".
+    expect(options.redirect).toBe("follow");
+  });
+
+  it("follows redirects in env mode even when the response is a 3xx", async () => {
+    // fetch with redirect:"follow" resolves to the final response; we only
+    // assert we asked it to follow, not that we throw on 3xx.
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ ok: true }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new CwManageClient({
+      baseUrl: "https://10.0.0.5",
+      companyId: "acme",
+      publicKey: "pub",
+      privateKey: "priv",
+      clientId: "client-1",
+    }).get("/system/info");
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(options.redirect).toBe("follow");
   });
 });

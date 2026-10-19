@@ -41,7 +41,7 @@ describe("verifyS2sHeader", () => {
   it("rejects a missing header", () => {
     expect(verifyS2sHeader(undefined, ownSubkey)).toBe(false);
   });
-  it("rejects when the secret is empty (dark-by-default guarantee)", () => {
+  it("rejects when the secret is empty", () => {
     const now = Math.floor(Date.now() / 1000);
     expect(verifyS2sHeader(mintHeader(ownSubkey, now), "")).toBe(false);
   });

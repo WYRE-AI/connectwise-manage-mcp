@@ -117,7 +117,7 @@ describe("cw_update_contact", () => {
         "cw_close_adjustment",
       ]),
     );
-    expect(names).toHaveLength(82);
+    expect(names).toHaveLength(83);
   });
 
   it("patches name, title, site, inactive flag, communication items, and custom fields", async () => {
@@ -154,7 +154,8 @@ describe("cw_update_contact", () => {
 
     const message = toolError(body);
     expect(message).toMatch(/ConnectWise API PATCH \/company\/contacts\/999999 returned 404/);
-    expect(message).toMatch(/Contact not found/);
+    expect(message).toMatch(/\(reference [0-9a-f-]{36}\)$/);
+    expect(message).not.toMatch(/Contact not found/);
   });
 
   it("rejects an add/replace operation missing value and does not call Manage", async () => {

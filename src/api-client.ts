@@ -19,6 +19,13 @@
  * tenants' cloud-hosted, fully-verified connections).
  */
 import { Agent } from "undici";
+import {
+  formatErrorDetail,
+  logRequestFailure,
+  newErrorReference,
+  safeErrorDetail,
+  type SafeErrorDetail,
+} from "./safe-error.js";
 import { assertSafeGatewayUrl } from "./url-guard.js";
 
 export interface CwManageConfig {
@@ -50,6 +57,51 @@ export function getConfig(): CwManageConfig | null {
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Error thrown for a non-2xx Manage response.
+ *
+ * The message is "ConnectWise API {METHOD} {path} returned {status}
+ * (reference {id})". It never holds the upstream response body, and neither
+ * does this object: the body is read once in the constructor to pull the
+ * allowlisted detail out of a 400 or a 403, then dropped. A 400 message ends
+ * with that detail so the caller can see which field was refused, and a 403
+ * message with ConnectWise's code and message so the caller can see which
+ * permission is missing.
+ *
+ * `status` lets callers branch on the HTTP code (e.g. retry policy) without
+ * parsing the message. `reference` matches the log line written for the
+ * failure. The client itself never retries.
+ */
+export class CwApiError extends Error {
+  readonly status: number;
+  readonly method: string;
+  readonly path: string;
+  readonly reference: string;
+  readonly detail: SafeErrorDetail | undefined;
+
+  constructor(method: string, path: string, status: number, body: string) {
+    const reference = newErrorReference();
+    const detail = safeErrorDetail(status, body);
+    const suffix = detail ? `: ${formatErrorDetail(detail)}` : "";
+    super(`ConnectWise API ${method} ${path} returned ${status} (reference ${reference})${suffix}`);
+    this.name = "CwApiError";
+    this.method = method;
+    this.path = path;
+    this.status = status;
+    this.reference = reference;
+    this.detail = detail;
+  }
+}
+
+/**
+ * True when `err` is a ConnectWise response with one of the given statuses.
+ * Use this, not a search of the message text: a message also holds a path and
+ * a reference id, and either can contain the same digits as a status.
+ */
+export function hasApiStatus(err: unknown, ...statuses: number[]): boolean {
+  return err instanceof CwApiError && statuses.includes(err.status);
+}
 
 /**
  * Low-level API client for ConnectWise Manage REST API.
@@ -108,6 +160,12 @@ export class CwManageClient {
     },
   ): Promise<T> {
     // Re-checked per request so a hostname re-pointed after the last call is caught.
+    // Known gap (documented, not closed): DNS can change between this lookup and
+    // the connection. Closing it needs a runtime lookup/dispatcher that pins the
+    // resolved address on the socket. This repo intentionally does not pass a
+    // standalone undici Agent to global fetch on the default path — mismatched
+    // undici versions have broken every request before. With redirects refused
+    // for gateway URLs, the window is small.
     if (this.untrustedBaseUrl !== undefined) {
       await assertSafeGatewayUrl(this.untrustedBaseUrl);
     }
@@ -121,12 +179,14 @@ export class CwManageClient {
       }
     }
 
+    // Redirect blocking is gateway-only: env-mode CW_MANAGE_URL may legitimately
+    // 301/302 to a canonical HTTPS origin on a self-hosted server. Cloudflare
+    // Workers reject redirect: "error", so gateway mode uses "manual" + a throw.
+    const blockRedirects = this.untrustedBaseUrl !== undefined;
     const fetchOptions: RequestInit = {
       method,
       headers: this.defaultHeaders(),
-      // A redirect could point anywhere, including addresses the guard rejects.
-      // "manual" plus a status check: Cloudflare Workers reject redirect: "error".
-      redirect: "manual",
+      redirect: blockRedirects ? "manual" : "follow",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     };
 
@@ -152,17 +212,28 @@ export class CwManageClient {
 
     const response = await fetch(url.toString(), fetchOptions);
 
-    if (response.status >= 300 && response.status < 400) {
+    if (
+      blockRedirects &&
+      response.status >= 300 &&
+      response.status < 400
+    ) {
       throw new Error(
         `ConnectWise API ${method} ${path} returned a redirect (HTTP ${response.status}); refusing to follow it.`,
       );
     }
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(
-        `ConnectWise API ${method} ${path} returned ${response.status}: ${errorBody}`,
-      );
+      // The body is read only so a 400 or a 403 can keep its allowlisted detail. It is
+      // never logged and never reaches the caller.
+      const errorBody = await response.text().catch(() => "");
+      const error = new CwApiError(method, path, response.status, errorBody);
+      logRequestFailure({
+        method,
+        path,
+        status: error.status,
+        reference: error.reference,
+      });
+      throw error;
     }
 
     // Some endpoints return 204 No Content

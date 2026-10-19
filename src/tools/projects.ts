@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { CwManageClient } from "../api-client.js";
-import { mapCreatedNoteResponse } from "./note-payload.js";
+import { CwManageClient, hasApiStatus } from "../api-client.js";
+import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
 
 export function registerProjectTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -89,8 +89,7 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
         });
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("404") || msg.includes("405")) {
+        if (hasApiStatus(err, 404, 405)) {
           // allNotes not supported on this CWM version — fall back to /notes
           const result = await client.get(`/project/tickets/${id}/notes`, {
             page: page ?? 1,
@@ -105,27 +104,41 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
 
   server.tool(
     "cw_add_project_ticket_note",
-    "Add a note to a project ticket. Use internalAnalysisFlag for internal-only notes or resolutionFlag for resolution notes. Defaults to a plain discussion note.",
+    "Add a note to a project ticket. Use internalAnalysisFlag for internal-only notes or resolutionFlag for resolution notes. Defaults to a plain discussion note. emailContactFlag, emailResourceFlag, and emailCcFlag are not note fields, are not sent, and never default to true. memberId is sent as member.id only when set.",
     {
       id: z.number().describe("Project ticket ID"),
       text: z.string().describe("Note text content"),
-      detailDescriptionFlag: z.boolean().optional().describe("Add as detail description (default: false)"),
-      internalAnalysisFlag: z.boolean().optional().describe("Mark as internal analysis only (default: false)"),
-      resolutionFlag: z.boolean().optional().describe("Mark as resolution note (default: false)"),
+      detailDescriptionFlag: z.boolean().optional().describe("Add as detail description (default: unset)"),
+      internalAnalysisFlag: z.boolean().optional().describe("Mark as internal analysis only (default: unset)"),
+      resolutionFlag: z.boolean().optional().describe("Mark as resolution note (default: unset)"),
+      memberId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Author member id, sent as member { id } only when set. Omit and Manage attributes the note to the API member."),
     },
-    async ({ id, text, detailDescriptionFlag, internalAnalysisFlag, resolutionFlag }) => {
-      const body: Record<string, unknown> = { text };
-      if (detailDescriptionFlag !== undefined) body.detailDescriptionFlag = detailDescriptionFlag;
-      if (internalAnalysisFlag !== undefined) body.internalAnalysisFlag = internalAnalysisFlag;
-      if (resolutionFlag !== undefined) body.resolutionFlag = resolutionFlag;
-
-      const result = await client.post<Record<string, unknown>>(`/project/tickets/${id}/notes`, body);
-      const mapped = mapCreatedNoteResponse(result, {
+    async ({ id, text, detailDescriptionFlag, internalAnalysisFlag, resolutionFlag, memberId }) => {
+      const body = buildTicketNoteBody({
+        text,
         detailDescriptionFlag,
         internalAnalysisFlag,
         resolutionFlag,
+        memberId,
       });
-      return { content: [{ type: "text", text: JSON.stringify(mapped, null, 2) }] };
+
+      try {
+        const result = await client.post<Record<string, unknown>>(`/project/tickets/${id}/notes`, body);
+        const mapped = mapCreatedNoteResponse(result, {
+          detailDescriptionFlag,
+          internalAnalysisFlag,
+          resolutionFlag,
+        });
+        return { content: [{ type: "text" as const, text: JSON.stringify(mapped, null, 2) }] };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text" as const, text: msg }], isError: true as const };
+      }
     },
   );
 

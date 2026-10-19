@@ -10,7 +10,15 @@ import { lookup } from "node:dns/promises";
 
 export class UnsafeUrlError extends Error {}
 
-/** Throws UnsafeUrlError unless `input` is https and every address it resolves to is public. */
+/**
+ * Throws UnsafeUrlError unless `input` is https and every address it resolves to is public.
+ *
+ * This is a pre-flight check only: global `fetch` resolves DNS again when it
+ * connects. Address pinning on the socket is not available on every runtime this
+ * package supports (and a standalone undici dispatcher has broken installs
+ * before), so a hostile DNS flip between this call and connect remains a residual
+ * SSRF risk. Callers must still refuse redirects on gateway URLs.
+ */
 export async function assertSafeGatewayUrl(input: string): Promise<void> {
   let url: URL;
   try {

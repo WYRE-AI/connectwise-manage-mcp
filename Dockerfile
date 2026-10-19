@@ -52,7 +52,11 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Set environment variables
+# Bind every interface inside the container. Host publish is loopback in
+# docker-compose. Startup still refuses to run without CONDUIT_S2S_SECRET
+# (a known placeholder is refused too). 0.0.0.0 is honored only because that
+# secret is set. AUTH_MODE=env is the single-tenant default; the gateway
+# Compose service overrides it and does not inject static vendor credentials.
 ENV NODE_ENV=production
 ENV LOG_LEVEL=info
 ENV MCP_TRANSPORT=http
