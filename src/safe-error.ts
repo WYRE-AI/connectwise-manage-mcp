@@ -48,9 +48,12 @@ const SECRET_KEYS =
   "password|passwd|secret|token|api[_-]?key|private[_-]?key|public[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|sessionid";
 
 const SECRET_PAIR = new RegExp(
-  `(?<![\\w-])(-*)(?!-)[\\w-]*?(?:${SECRET_KEYS})["']?\\s*[:=]\\s*(?:"[^"]*"|'[^']*'|[^\\s,;&]+)`,
-  "gi",
+  `(?<![\\w-])(-*)([\\w-]+)(["']?\\s*[:=]\\s*)(?:"[^"]*"|'[^']*'|[^\\s,;&]+)`,
+  "g",
 );
+
+// Unanchored, so a secret word matches as a prefix, suffix or infix of the key.
+const SECRET_KEY = new RegExp(SECRET_KEYS, "i");
 
 /** Replace credentials and key-like values in `text` with "[redacted]". */
 export function redactSecrets(text: string): string {
@@ -64,7 +67,9 @@ export function redactSecrets(text: string): string {
       // JWTs.
       .replace(/\beyJ[\w-]*\.[\w-]+\.[\w-]+/g, REDACTED)
       // key=value and key: value pairs with a secret-looking key.
-      .replace(SECRET_PAIR, (_match, hyphens: string) => `${hyphens}${REDACTED}`)
+      .replace(SECRET_PAIR, (match, hyphens: string, key: string) =>
+        SECRET_KEY.test(key) ? `${hyphens}${REDACTED}` : match,
+      )
       // Long opaque runs that hold a digit: keys and tokens, not words.
       .replace(/[A-Za-z0-9+/=_-]{32,}/g, (run) => (/\d/.test(run) ? REDACTED : run))
   );

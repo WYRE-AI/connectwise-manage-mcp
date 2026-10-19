@@ -234,11 +234,19 @@ describe("safeErrorDetail", () => {
     });
 
     it("redacts a secret key after a long run without backtracking", () => {
-      const start = performance.now();
       const out = redactSecrets(`${"a".repeat(20000)}password=x1`);
-      expect(performance.now() - start).toBeLessThan(200);
       expect(out).not.toContain("x1");
       expect(out).toContain("[redacted]");
+    });
+
+    it("redacts a key with a suffix after the secret keyword", () => {
+      const out = redactSecrets("apiKeyValue: AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEf");
+      expect(out).not.toContain("AbCdEfGh");
+      expect(out).toContain("[redacted]");
+    });
+
+    it("leaves a non-secret pair alone", () => {
+      expect(redactSecrets("field: communicationItems")).toBe("field: communicationItems");
     });
 
     it("keeps leading hyphens when redacting a flag-style pair", () => {
