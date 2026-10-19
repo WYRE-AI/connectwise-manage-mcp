@@ -45,6 +45,12 @@ export function resolveCardFromToolResult(
   }
 
   const card = extractCard(payload);
-  if (!card || !Array.isArray(card.notes)) return null;
+  if (
+    !card ||
+    !Array.isArray(card.notes) ||
+    !card.notes.every((note) => note !== null && typeof note === "object")
+  ) {
+    return null;
+  }
   return card;
 }

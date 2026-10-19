@@ -63,6 +63,15 @@ describe("resolveCardFromToolResult (#105)", () => {
     expect(resolved).toBeNull();
   });
 
+  it("rejects a card whose notes array contains null entries", () => {
+    const resolved = resolveCardFromToolResult({
+      structuredContent: {
+        _card: { id: 1, summary: "bad notes", notes: [null] },
+      },
+    });
+    expect(resolved).toBeNull();
+  });
+
   it("returns null when there is no usable payload", () => {
     expect(resolveCardFromToolResult({})).toBeNull();
     expect(
@@ -72,8 +81,11 @@ describe("resolveCardFromToolResult (#105)", () => {
     ).toBeNull();
   });
 
-  it("embeds structuredContent handling in the built card HTML", () => {
+  it("embeds structuredContent preference in the built card HTML", () => {
     // Guards against forgetting npm run build:ui after editing ui/resolve-card.ts.
-    expect(TICKET_CARD_HTML).toContain("structuredContent");
+    // Prefer resolver-specific minified markers over the bare SDK token
+    // "structuredContent", which already appears in bundled MCP Apps schemas.
+    expect(TICKET_CARD_HTML).toMatch(/structuredContent;if\([a-z]===void 0\)/);
+    expect(TICKET_CARD_HTML).toContain("notes.every");
   });
 });
