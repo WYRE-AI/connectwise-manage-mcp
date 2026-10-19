@@ -48,7 +48,7 @@ const SECRET_KEYS =
   "password|passwd|secret|token|api[_-]?key|private[_-]?key|public[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|sessionid";
 
 const SECRET_PAIR = new RegExp(
-  `\\b[\\w-]*(?:${SECRET_KEYS})\\s*[:=]\\s*(?:"[^"]*"|'[^']*'|[^\\s,;&]+)`,
+  `(?<![\\w-])(-*)(?!-)[\\w-]*?(?:${SECRET_KEYS})["']?\\s*[:=]\\s*(?:"[^"]*"|'[^']*'|[^\\s,;&]+)`,
   "gi",
 );
 
@@ -57,14 +57,14 @@ export function redactSecrets(text: string): string {
   return (
     text
       // Header-style values: "Authorization: ...", "clientId=...".
-      .replace(/\b(?:authorization|client-?id|x-api-key|set-cookie|cookie)\s*[:=][^\r\n,;]*/gi, REDACTED)
+      .replace(/\b(?:authorization|client-?id|x-api-key|set-cookie|cookie)["']?\s*[:=][^\r\n,;]*/gi, REDACTED)
       // Basic and Bearer credentials. A Basic value must look like base64, not a word.
       .replace(/\bBearer\s+[A-Za-z0-9+/=._~-]{8,}/gi, REDACTED)
       .replace(/\b[Bb][Aa][Ss][Ii][Cc]\s+(?=[A-Za-z0-9+/=]*(?:\d|[+/=]|[a-z][A-Z]))[A-Za-z0-9+/=]{8,}/g, REDACTED)
       // JWTs.
       .replace(/\beyJ[\w-]*\.[\w-]+\.[\w-]+/g, REDACTED)
       // key=value and key: value pairs with a secret-looking key.
-      .replace(SECRET_PAIR, REDACTED)
+      .replace(SECRET_PAIR, (_match, hyphens: string) => `${hyphens}${REDACTED}`)
       // Long opaque runs that hold a digit: keys and tokens, not words.
       .replace(/[A-Za-z0-9+/=_-]{32,}/g, (run) => (/\d/.test(run) ? REDACTED : run))
   );

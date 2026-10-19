@@ -221,7 +221,28 @@ describe("safeErrorDetail", () => {
 
     it("redacts before the length cap", () => {
       const detail = safeErrorDetail(400, JSON.stringify({ message: `${"x ".repeat(95)}${LONG}` }));
-      expect(detail?.message).not.toContain(LONG.slice(0, 20));
+      expect(detail?.message).toBe(`${"x ".repeat(95)}[redacted]`);
+    });
+
+    it("redacts JSON-style pairs with a closing quote before the separator", () => {
+      const key = redactSecrets('{"privateKey":"Ab12Cd34Ef56Gh78"}');
+      expect(key).not.toContain("Ab12Cd34Ef56Gh78");
+      expect(key).toContain("[redacted]");
+      const header = redactSecrets('{"authorization": "Secret-value-123"}');
+      expect(header).not.toContain("Secret-value-123");
+      expect(header).toContain("[redacted]");
+    });
+
+    it("redacts a secret key after a long run without backtracking", () => {
+      const start = performance.now();
+      const out = redactSecrets(`${"a".repeat(20000)}password=x1`);
+      expect(performance.now() - start).toBeLessThan(200);
+      expect(out).not.toContain("x1");
+      expect(out).toContain("[redacted]");
+    });
+
+    it("keeps leading hyphens when redacting a flag-style pair", () => {
+      expect(redactSecrets("--token=abc123")).toBe("--[redacted]");
     });
   });
 
