@@ -50,9 +50,10 @@ export function registerCompanyTools(server: McpServer, client: CwManageClient) 
       country: z.string().optional().describe("Country"),
       phoneNumber: z.string().optional().describe("Phone number"),
       website: z.string().optional().describe("Website URL"),
+      siteName: z.string().optional().describe("Name of the company's primary site (default: \"Main\"). ConnectWise requires a site name."),
     },
-    async ({ name, identifier, typeIds, statusId, addressLine1, city, state, zip, country, phoneNumber, website }) => {
-      const body: Record<string, unknown> = { name, identifier };
+      async ({ name, identifier, typeIds, statusId, addressLine1, city, state, zip, country, phoneNumber, website, siteName }) => {
+           const body: Record<string, unknown> = { name, identifier, site: { name: siteName || "Main" } };
       if (typeIds?.length) body.types = typeIds.map((id) => ({ id }));
       if (statusId) body.status = { id: statusId };
       if (addressLine1) body.addressLine1 = addressLine1;

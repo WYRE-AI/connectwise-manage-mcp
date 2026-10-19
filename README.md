@@ -5,7 +5,7 @@
 
 **Let your AI assistant work directly with ConnectWise Manage.** Search tickets, log time, look up companies and contacts, manage projects — through natural conversation instead of clicking through the CWM interface.
 
-This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 60 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
+This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 86 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
 
 > **Part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Autotask](https://github.com/wyre-technology/autotask-mcp), [Datto RMM](https://github.com/wyre-technology/datto-rmm-mcp), [IT Glue](https://github.com/wyre-technology/itglue-mcp), [HaloPSA](https://github.com/wyre-technology/halopsa-mcp), [NinjaOne](https://github.com/wyre-technology/ninjaone-mcp), [Huntress](https://github.com/wyre-technology/huntress-mcp), and more. Built by MSPs, for MSPs.
 
@@ -32,15 +32,38 @@ For deploying to **Azure Container Apps** with Entra ID OAuth 2.1, see [AZURE_AC
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `CW_MANAGE_COMPANY_ID` | Yes | Your ConnectWise company identifier |
-| `CW_MANAGE_PUBLIC_KEY` | Yes | API member public key |
-| `CW_MANAGE_PRIVATE_KEY` | Yes | API member private key |
-| `CW_MANAGE_CLIENT_ID` | Yes | Client ID from [ConnectWise Developer Portal](https://developer.connectwise.com/) |
+| `CW_MANAGE_COMPANY_ID` | For stdio and `AUTH_MODE=env` | Your ConnectWise company identifier |
+| `CW_MANAGE_PUBLIC_KEY` | For stdio and `AUTH_MODE=env` | API member public key |
+| `CW_MANAGE_PRIVATE_KEY` | For stdio and `AUTH_MODE=env` | API member private key |
+| `CW_MANAGE_CLIENT_ID` | For stdio and `AUTH_MODE=env` | Client ID from [ConnectWise Developer Portal](https://developer.connectwise.com/) |
 | `CW_MANAGE_URL` | No | API base URL (see below) |
 | `CW_MANAGE_REJECT_UNAUTHORIZED` | No | Set to `false` for self-signed certs (default: `true`) |
 | `MCP_TRANSPORT` | No | `stdio` (default) or `http` |
 | `MCP_HTTP_PORT` | No | HTTP port (default: `8080`) |
-| `AUTH_MODE` | No | `env` (default) or `gateway` for header-based auth |
+| `MCP_HTTP_HOST` | No | Bind address when `MCP_TRANSPORT=http`. Defaults to `127.0.0.1`. A configured `CONDUIT_S2S_SECRET` honors this value. The container image sets `0.0.0.0`. |
+| `CONDUIT_S2S_SECRET` | Yes for HTTP | Service-to-service secret. The HTTP server logs an error and exits non-zero when this is empty or a known placeholder (`changeme`, `secret`, `your-s2s-secret`, `replace-me`, and similar). Compose will not start when it is unset. Never commit a real value. Leave it empty in `.env.example`. |
+| `MCP_ALLOW_INSECURE_DEV` | No | Set to `1` only for local development to start HTTP without `CONDUIT_S2S_SECRET`. The process logs a warning, does not enforce `X-Gateway-S2S`, and listens on `127.0.0.1` only (a wider `MCP_HTTP_HOST` is overridden). A placeholder secret is still refused. |
+| `AUTH_MODE` | No | `env` (default) or `gateway`. Gateway mode requires `X-CW-Company-Id`, `X-CW-Public-Key`, `X-CW-Private-Key`, and `X-CW-Client-Id` on each `/mcp` request. `env` uses `CW_MANAGE_*` after S2S auth succeeds. |
+
+`/health` stays unauthenticated and does not read ConnectWise credentials. The stdio transport does not use `CONDUIT_S2S_SECRET`.
+
+### HTTP authentication
+
+With `MCP_TRANSPORT=http` and `CONDUIT_S2S_SECRET` set, every `/mcp` request must include `X-Gateway-S2S`. The header value is:
+
+```text
+t=<unix seconds>,v1=<hex hmac-sha256>
+```
+
+`v1` is HMAC-SHA256 (hex, lowercase) of the ASCII string `t=<unix seconds>`, keyed with `CONDUIT_S2S_SECRET`. The timestamp must be within 300 seconds of the server clock. A missing or invalid header returns 401. The process never writes the secret to logs.
+
+```text
+X-Gateway-S2S: t=1710000000,v1=<hmac-sha256("t=1710000000")>
+```
+
+In `AUTH_MODE=gateway`, `/mcp` also requires `X-CW-Company-Id`, `X-CW-Public-Key`, `X-CW-Private-Key`, and `X-CW-Client-Id` (`X-CW-URL` is optional). Those headers are the credential source for that request. A request missing any required header returns 401.
+
+Entra OAuth discovery routes stay available when `MCP_OAUTH_ENABLED=true`. `POST /mcp` still requires a valid `X-Gateway-S2S` header when the secret is set.
 
 ### API Base URL (`CW_MANAGE_URL`)
 
@@ -79,10 +102,12 @@ needed.
 ### Tickets
 - `cw_search_tickets` — Search service tickets with conditions
 - `cw_get_ticket` — Get a ticket by ID
+- `cw_get_ticket_configurations` — List configuration references associated with a service ticket (paged)
+- `cw_update_ticket_configurations` — Add/remove ticket configuration associations in an ordered batch, reporting every outcome
 - `cw_create_ticket` — Create a new service ticket. Optional `parentTicketId` (the same field `cw_get_ticket` returns) creates the ticket as a child of that parent.
 - `cw_update_ticket` — Update a ticket (JSON Patch)
 - `cw_get_ticket_notes` — Get all notes on a ticket (including child ticket notes)
-- `cw_add_ticket_note` — Add a note to a ticket (discussion, internal, or resolution). Optional `emailContactFlag`, `emailResourceFlag`, `emailCcFlag`, and `emailCc` control who is emailed. **Nothing is emailed unless one of those flags is set** (or you set `processNotifications`). Omitting them does not email the contact. The create response reports `internalFlag` / `externalFlag` from the note type that was stored, so an internal note is not also reported as external.
+- `cw_add_ticket_note` — Add a note to a ticket (discussion, internal, or resolution). **Nothing is emailed unless `processNotifications` is true.** `emailContactFlag`, `emailResourceFlag`, `emailCcFlag`, and `emailCc` are not ServiceNote fields and are not sent (posting them is a ConnectWise 400). A true flag only turns on `processNotifications`. Recipients come from the ticket `automaticEmailContactFlag`, `automaticEmailResourceFlag`, `automaticEmailCcFlag`, and `automaticEmailCc`. Optional `memberId` is sent as `member.id` and sets the author; omit it and Manage attributes the note to the API member. The create response reports `internalFlag` / `externalFlag` from the note type that was stored, so an internal note is not also reported as external.
 
 ### Companies
 - `cw_search_companies` — Search companies
@@ -104,14 +129,21 @@ needed.
 - `cw_search_project_tickets` — Search tickets under a project
 - `cw_get_project_ticket` — Get a specific project ticket by ID
 - `cw_get_project_ticket_notes` — Get all notes on a project ticket (including child ticket notes)
-- `cw_add_project_ticket_note` — Add a note to a project ticket (discussion, internal, or resolution)
+- `cw_add_project_ticket_note` — Add a note to a project ticket (discussion, internal, or resolution). Email flags are not sent. Optional `memberId` sets the author (`member.id`).
 
 ### Time Entries
 - `cw_search_time_entries` — Search time entries
 - `cw_get_time_entry` — Get a time entry by ID
-- `cw_create_time_entry` — Create a new time entry
+- `cw_create_time_entry` — Create a new time entry. `emailContactFlag`, `emailResourceFlag`, and `emailCcFlag` are sent as false unless you set them, so an omitted flag cannot email the ticket contact.
 - `cw_update_time_entry` — Correct a time entry (JSON Patch on `PATCH /time/entries/{id}`). Use this to fix `actualHours` when a metered agreement rounds to 0.25.
 - `cw_delete_time_entry` — Delete a time entry (`DELETE /time/entries/{id}`). Manage rejects deletes of entries that are already billed.
+
+### Schedule Entries
+- `cw_search_schedule_entries` — Search booked resource time
+- `cw_list_schedule_types` — List schedule types (Service, Project, Sales, Meeting)
+- `cw_list_schedule_statuses` — List schedule statuses (Tentative, Firm)
+- `cw_create_schedule_entry` — Book resource time against a ticket, activity or project ticket
+- `cw_update_schedule_entry` — Update a schedule entry (JSON Patch)
 
 ### Members
 - `cw_search_members` — Search members/technicians
@@ -137,10 +169,13 @@ needed.
 - `cw_get_agreement_additions` — Get additions (line items) on an agreement
 - `cw_update_agreement_addition` — Update an addition with JSON Patch (quantity, effectiveDate, cancelledDate, billCustomer, etc.); supports a `dryRun` preview that makes no write
 - `cw_create_agreement_addition` — Create a new addition on an agreement
+- `cw_search_agreement_recaps` — Search agreement billing recaps (used, remaining, overrun, next invoice)
+- `cw_get_agreement_recap` — Get the billing recap for one agreement
 
 ### Invoices
-- `cw_search_invoices` — Search invoice headers and totals
-- `cw_get_invoice` — Get one invoice header by ID (totals only)
+- `cw_search_invoices` — Search invoices (CW `conditions`, `orderBy` e.g. `id desc`)
+- `cw_get_invoice` — Get an invoice by ID
+- `cw_update_invoice` — Update one invoice with JSON Patch (`PATCH /finance/invoices/{id}`); returns the updated invoice in the same shape as `cw_get_invoice`. Allowed paths (leading slash optional): `status/id` or `status` (`{ id }`), `attention`, `dueDate`, `date`, `reference`, `customerPO`, `internalNotes`, `billToCompany` and `billingSite` (each as `{ id }` or via `/id`; `billToSite` is accepted as an alias for Manage's `billingSite`). Manage invoices have no `billToContact` field — use `attention` for the contact name. Custom and payment fields are rejected before Manage is called. `dryRun: true` GETs the invoice, applies the patch in memory, and returns `{ dryRun: true, saved: false, preview }` with no write. No batch mode — loop over ids (concurrency 3–5) and report per invoice. Resolve billing status names to ids first; never guess an id. Manage 400/401/403/404/409 errors pass through; 429 is retried once, and 5xx is retried once only when every operation is replace (a PATCH that includes add or remove retries only on 429). Requires the API member's role to have **Finance › Invoices: Edit**.
 - `cw_get_invoice_products` — Product lines charged to an invoice (`GET /procurement/products?conditions=invoice/id={id}`), including agreement product charges
 - `cw_get_invoice_time_entries` — Time entries billed on an invoice (`GET /time/entries?conditions=invoice/id={id}`)
 - `cw_get_invoice_expenses` — Expense entries billed on an invoice (`GET /expense/entries?conditions=invoice/id={id}`)
@@ -161,6 +196,18 @@ The API member needs **Finance → Invoicing → Inquire = All** for the header 
 
 Agreement additions (`cw_get_agreement_additions`) are the recurring lines on the contract. They are not the lines on a generated invoice. The invoice header's `agreementAmount` is the agreement portion of that invoice; the line-level agreement fields above are how that portion is split across products, time, and expenses.
 
+### Procurement
+- `cw_search_purchase_orders` — Search purchase orders
+- `cw_get_purchase_order` — Get a purchase order by ID
+- `cw_get_purchase_order_items` — Get the line items on a purchase order
+- `cw_search_procurement_products` — Search procurement product items (SKUs placed on a ticket, project, order or opportunity)
+- `cw_get_procurement_product` — Get a procurement product item by ID
+
+### Sales Orders
+- `cw_search_sales_orders` — Search sales orders
+- `cw_get_sales_order` — Get a sales order by ID
+- `cw_get_sales_order_products` — Get the product items on a sales order
+
 ### Opportunities
 - `cw_search_opportunities` — Search opportunities
 - `cw_get_opportunity` — Get an opportunity by ID
@@ -176,6 +223,19 @@ Agreement additions (`cw_get_agreement_additions`) are the recurring lines on th
 - `cw_list_catalog_categories` — List catalog categories
 - `cw_list_catalog_subcategories` — List catalog subcategories
 - `cw_list_manufacturers` — List manufacturers
+
+### Procurement Inventory
+Warehouse stock and Inventory Adjustments. An adjustment is the only supported way to change on-hand quantities through the API: create the header, add the lines, then close it to post.
+- `cw_list_warehouses` — List inventory warehouses
+- `cw_list_warehouse_bins` — List warehouse bins, optionally for one warehouse
+- `cw_get_inventory_on_hand` — Report every item with non-zero on-hand per bin, negatives included, with unit cost and extended value
+- `cw_list_adjustment_types` — List inventory adjustment types
+- `cw_create_adjustment` — Create an adjustment header (moves no stock)
+- `cw_add_adjustment_detail` — Add one signed adjustment line, with serial numbers for serialised items
+- `cw_get_adjustment` — Get an adjustment header with all of its detail lines
+- `cw_close_adjustment` — Post the adjustment. **Not reversible except by a counter-adjustment**
+
+Two limits of the ConnectWise API are worth knowing before using these. There is no `summary` field on an adjustment: the free-text fields are `reason` (max 100 characters) and `notes`. And no endpoint exposes an average cost, so the `unitCost` reported by `cw_get_inventory_on_hand` is the catalog item's own `cost` field, which is the standing cost rather than the weighted average cost ConnectWise values the stock at.
 
 ### Health
 - `cw_test_connection` — Test connection (hits `/system/info`)
@@ -226,19 +286,45 @@ For a self-hosted instance:
 
 ### With Docker
 
+The checked-in Compose service is gateway mode. It does not set `CW_MANAGE_*` and does not use `env_file`, so a project `.env` cannot inject static vendor credentials into the container. Compose still interpolates `CONDUIT_S2S_SECRET` and `LOG_LEVEL` from that file. The image listens on `0.0.0.0` inside the container; the published port is loopback.
+
 ```bash
-docker compose up -d
+CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" docker compose up -d
 ```
+
+Generate the secret with `openssl rand -hex 32`. Compose refuses to start when `CONDUIT_S2S_SECRET` is unset. Every `/mcp` request must carry `X-Gateway-S2S` (see [HTTP authentication](#http-authentication)) plus the `X-CW-*` credential headers.
+
+Single-tenant HTTP (`AUTH_MODE=env`) still requires the S2S secret, then uses `CW_MANAGE_*`:
+
+```bash
+docker run \
+  -e CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" \
+  -e AUTH_MODE=env \
+  -e CW_MANAGE_COMPANY_ID=your-company-id \
+  -e CW_MANAGE_PUBLIC_KEY=your-public-key \
+  -e CW_MANAGE_PRIVATE_KEY=your-private-key \
+  -e CW_MANAGE_CLIENT_ID=your-client-id \
+  -p 127.0.0.1:8080:8080 \
+  ghcr.io/wyre-ai/connectwise-manage-mcp:latest
+```
+
+`docker-compose.caddy.yml` is that single-tenant shape behind Caddy. It still requires `CONDUIT_S2S_SECRET`.
 
 ### HTTP Transport (Gateway Mode)
 
-Run with HTTP transport for multi-tenant gateway deployments:
+Run with HTTP transport for multi-tenant gateway deployments. The process exits until `CONDUIT_S2S_SECRET` is set:
 
 ```bash
-MCP_TRANSPORT=http AUTH_MODE=gateway node dist/index.js
+CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" MCP_TRANSPORT=http AUTH_MODE=gateway node dist/index.js
 ```
 
-Pass credentials per-request via headers: `X-CW-Company-Id`, `X-CW-Public-Key`, `X-CW-Private-Key`, `X-CW-Client-Id`, and optionally `X-CW-URL`.
+Each `/mcp` request needs a valid `X-Gateway-S2S` header plus `X-CW-Company-Id`, `X-CW-Public-Key`, `X-CW-Private-Key`, and `X-CW-Client-Id` (`X-CW-URL` is optional).
+
+Local HTTP without a secret is development-only. It binds `127.0.0.1` and logs a warning:
+
+```bash
+MCP_TRANSPORT=http MCP_ALLOW_INSECURE_DEV=1 npm start
+```
 
 ## Development
 
@@ -249,8 +335,14 @@ npm install
 # Build
 npm run build
 
-# Run in development
+# Run in development (stdio)
 npm run dev
+
+# HTTP refuses to start until CONDUIT_S2S_SECRET is set
+CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" MCP_TRANSPORT=http npm start
+
+# Local HTTP only, without a service-to-service secret (always binds 127.0.0.1)
+MCP_TRANSPORT=http MCP_ALLOW_INSECURE_DEV=1 npm start
 
 # Type check
 npm run typecheck

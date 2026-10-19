@@ -110,9 +110,14 @@ describe("cw_update_contact", () => {
         "cw_update_contact",
         "cw_update_contact_types",
         "cw_update_agreement_addition",
+        "cw_search_schedule_entries",
+        "cw_create_schedule_entry",
+        "cw_list_warehouses",
+        "cw_get_inventory_on_hand",
+        "cw_close_adjustment",
       ]),
     );
-    expect(names).toHaveLength(60);
+    expect(names).toHaveLength(86);
   });
 
   it("patches name, title, site, inactive flag, communication items, and custom fields", async () => {
@@ -149,7 +154,8 @@ describe("cw_update_contact", () => {
 
     const message = toolError(body);
     expect(message).toMatch(/ConnectWise API PATCH \/company\/contacts\/999999 returned 404/);
-    expect(message).toMatch(/Contact not found/);
+    expect(message).toMatch(/\(reference [0-9a-f-]{36}\)$/);
+    expect(message).not.toMatch(/Contact not found/);
   });
 
   it("rejects an add/replace operation missing value and does not call Manage", async () => {
