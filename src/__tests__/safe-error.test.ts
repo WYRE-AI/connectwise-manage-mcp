@@ -233,6 +233,18 @@ describe("safeErrorDetail", () => {
       expect(header).toContain("[redacted]");
     });
 
+    it("redacts a Cookie header through its semicolons", () => {
+      expect(redactSecrets("Cookie: a=1; session=AbC123xyz789")).not.toContain("AbC123xyz789");
+    });
+
+    it("redacts a Set-Cookie header through its attributes", () => {
+      expect(redactSecrets("Set-Cookie: sid=xyz12345; Path=/; HttpOnly")).not.toContain("xyz12345");
+    });
+
+    it("redacts a JSON-quoted cookie value containing a semicolon", () => {
+      expect(redactSecrets('"cookie": "a=1; b=secret99"')).not.toContain("secret99");
+    });
+
     it("redacts a secret key after a long run without backtracking", () => {
       const out = redactSecrets(`${"a".repeat(20000)}password=x1`);
       expect(out).not.toContain("x1");

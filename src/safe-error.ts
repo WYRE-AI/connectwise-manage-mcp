@@ -92,7 +92,9 @@ function redactPairs(text: string): string {
 export function redactSecrets(text: string): string {
   const withoutCredentials = text
     // Header-style values: "Authorization: ...", "clientId=...".
-    .replace(/\b(?:authorization|client-?id|x-api-key|set-cookie|cookie)["']?\s*[:=][^\r\n,;]*/gi, REDACTED)
+    .replace(/\b(?:authorization|client-?id|x-api-key)["']?\s*[:=][^\r\n,;]*/gi, REDACTED)
+    // Cookie values legitimately contain ";" and ",", so they run to the end of the line.
+    .replace(/\b(?:set-cookie|cookie)["']?\s*[:=][^\r\n]*/gi, REDACTED)
     // Basic and Bearer credentials. A Basic value must look like base64, not a word.
     .replace(/\bBearer\s+[A-Za-z0-9+/=._~-]{8,}/gi, REDACTED)
     .replace(/\b[Bb][Aa][Ss][Ii][Cc]\s+(?=[A-Za-z0-9+/=]*(?:\d|[+/=]|[a-z][A-Z]))[A-Za-z0-9+/=]{8,}/g, REDACTED)
