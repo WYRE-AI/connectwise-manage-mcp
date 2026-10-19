@@ -261,6 +261,31 @@ describe("safeErrorDetail", () => {
       expect(redactSecrets('detail: "password=hunter2"')).not.toContain("hunter2");
     });
 
+    it("redacts a double-quoted secret value that holds an escaped quote", () => {
+      const out = redactSecrets('password="ab\\"cd123" next');
+      expect(out).not.toContain("cd123");
+      expect(out).toContain("next");
+    });
+
+    it("redacts a single-quoted secret value that holds an escaped quote", () => {
+      const out = redactSecrets("password='ab\\'cd123' next");
+      expect(out).not.toContain("cd123");
+      expect(out).toContain("next");
+    });
+
+    it("redacts an unterminated quoted secret value to the end", () => {
+      expect(redactSecrets('password="abc123 def456')).not.toContain("def456");
+    });
+
+    it("handles thousands of nested pairs without throwing", () => {
+      const text = `${"a=".repeat(5000)}token=abc123`;
+      let out = "";
+      expect(() => {
+        out = redactSecrets(text);
+      }).not.toThrow();
+      expect(out).not.toContain("abc123");
+    });
+
     it("returns a long hyphen-only run unchanged", () => {
       const run = "-".repeat(20000);
       expect(redactSecrets(run)).toBe(run);

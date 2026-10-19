@@ -17,6 +17,8 @@
 
 /** Longest single string copied out of an error body, ellipsis included. */
 export const MAX_DETAIL_STRING = 200;
+/** Longest raw string scanned for secrets, so redaction work stays bounded. */
+export const MAX_DETAIL_INPUT = 8192;
 /** Most entries copied out of the `errors` array of a 4xx body. */
 export const MAX_DETAIL_ERRORS = 5;
 /** Longest detail text added to an error message. */
@@ -47,51 +49,59 @@ const REDACTED = "[redacted]";
 const SECRET_KEYS =
   "password|passwd|secret|token|api[_-]?key|private[_-]?key|public[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|sessionid";
 
-const SECRET_PAIR = new RegExp(
-  `(?<![\\w-])(-*)(\\w[\\w-]*)(["']?\\s*[:=]\\s*)("[^"]*"|'[^']*'|[^\\s,;&]+)`,
-  "g",
-);
+// Matches "key<sep>" only. The key may carry leading hyphens, which are kept.
+const KEY_SEP = /(?<![\w-])(-*)(\w[\w-]*)(["']?\s*[:=]\s*)/g;
+
+// A quoted value honours backslash escapes; an unterminated quote runs to the end.
+const VALUE = /"(?:[^"\\]|\\.)*\\?"?|'(?:[^'\\]|\\.)*\\?'?|[^\s,;&]+/y;
 
 // Unanchored, so a secret word matches as a prefix, suffix or infix of the key.
 const SECRET_KEY = new RegExp(SECRET_KEYS, "i");
 
 /**
- * Redact secret-keyed pairs. A non-secret pair keeps its key, and its value is
- * scanned again so a nested pair ("field=token=abc") is caught. The value is
- * always shorter than the text, so the recursion ends.
+ * Redact secret-keyed pairs in one left-to-right pass. A secret pair is
+ * replaced whole. After a non-secret key the scan resumes right behind the
+ * separator, so a pair nested in its value ("field=token=abc") is found too.
+ * The scan index only moves forward, so the work is linear and never recurses.
  */
 function redactPairs(text: string): string {
-  return text.replace(SECRET_PAIR, redactPair);
-}
-
-function redactPair(
-  _match: string,
-  hyphens: string,
-  key: string,
-  separator: string,
-  value: string,
-): string {
-  return SECRET_KEY.test(key)
-    ? `${hyphens}${REDACTED}`
-    : `${hyphens}${key}${separator}${redactPairs(value)}`;
+  const keySep = new RegExp(KEY_SEP.source, "g");
+  const value = new RegExp(VALUE.source, "y");
+  let out = "";
+  let copied = 0;
+  let match: RegExpExecArray | null;
+  while ((match = keySep.exec(text)) !== null) {
+    const [whole, hyphens, key] = match;
+    const afterSep = match.index + whole.length;
+    if (SECRET_KEY.test(key)) {
+      value.lastIndex = afterSep;
+      const found = value.exec(text);
+      if (found !== null) {
+        out += `${text.slice(copied, match.index)}${hyphens}${REDACTED}`;
+        copied = afterSep + found[0].length;
+        keySep.lastIndex = copied;
+        continue;
+      }
+    }
+    keySep.lastIndex = afterSep;
+  }
+  return out + text.slice(copied);
 }
 
 /** Replace credentials and key-like values in `text` with "[redacted]". */
 export function redactSecrets(text: string): string {
-  return (
-    text
-      // Header-style values: "Authorization: ...", "clientId=...".
-      .replace(/\b(?:authorization|client-?id|x-api-key|set-cookie|cookie)["']?\s*[:=][^\r\n,;]*/gi, REDACTED)
-      // Basic and Bearer credentials. A Basic value must look like base64, not a word.
-      .replace(/\bBearer\s+[A-Za-z0-9+/=._~-]{8,}/gi, REDACTED)
-      .replace(/\b[Bb][Aa][Ss][Ii][Cc]\s+(?=[A-Za-z0-9+/=]*(?:\d|[+/=]|[a-z][A-Z]))[A-Za-z0-9+/=]{8,}/g, REDACTED)
-      // JWTs.
-      .replace(/\beyJ[\w-]*\.[\w-]+\.[\w-]+/g, REDACTED)
-      // key=value and key: value pairs with a secret-looking key.
-      .replace(SECRET_PAIR, redactPair)
-      // Long opaque runs that hold a digit: keys and tokens, not words.
-      .replace(/[A-Za-z0-9+/=_-]{32,}/g, (run) => (/\d/.test(run) ? REDACTED : run))
-  );
+  const withoutCredentials = text
+    // Header-style values: "Authorization: ...", "clientId=...".
+    .replace(/\b(?:authorization|client-?id|x-api-key|set-cookie|cookie)["']?\s*[:=][^\r\n,;]*/gi, REDACTED)
+    // Basic and Bearer credentials. A Basic value must look like base64, not a word.
+    .replace(/\bBearer\s+[A-Za-z0-9+/=._~-]{8,}/gi, REDACTED)
+    .replace(/\b[Bb][Aa][Ss][Ii][Cc]\s+(?=[A-Za-z0-9+/=]*(?:\d|[+/=]|[a-z][A-Z]))[A-Za-z0-9+/=]{8,}/g, REDACTED)
+    // JWTs.
+    .replace(/\beyJ[\w-]*\.[\w-]+\.[\w-]+/g, REDACTED);
+  // key=value and key: value pairs with a secret-looking key.
+  return redactPairs(withoutCredentials)
+    // Long opaque runs that hold a digit: keys and tokens, not words.
+    .replace(/[A-Za-z0-9+/=_-]{32,}/g, (run) => (/\d/.test(run) ? REDACTED : run));
 }
 
 const INTERNAL_DETAIL = [
@@ -113,7 +123,7 @@ export function looksInternal(text: string): boolean {
 function safeString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   if (looksInternal(value)) return undefined;
-  const cleaned = redactSecrets(value)
+  const cleaned = redactSecrets(value.slice(0, MAX_DETAIL_INPUT))
     // Control characters, including newlines: one error stays on one line.
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]+/g, " ")
