@@ -457,6 +457,9 @@ describe("gateway /mcp auth", () => {
         publicKey: "header-public",
         privateKey: "header-private",
         clientId: "header-client",
+        // X-CW-Url is caller-controlled; flag it so CwManageClient runs the
+        // gateway URL guard before every request (#101 / #106).
+        untrustedBaseUrl: true,
       },
     ]);
     assertNoSecrets(response.body);
