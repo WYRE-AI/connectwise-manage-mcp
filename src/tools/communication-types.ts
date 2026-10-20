@@ -82,8 +82,15 @@ export function pickPhoneType(types: CommunicationTypeRecord[]): ResolvedCommuni
 export function findTypeByName(
   types: CommunicationTypeRecord[],
   name: string,
+  kind?: CommunicationKind,
 ): ResolvedCommunicationType | undefined {
-  const match = types.filter(isUsable).find((t) => matchesLabel(t, name));
+  // Scope the match to the requested kind so an email item never gets a
+  // phone type (and vice versa). Fall back to every type only when the
+  // tenant flags none of that kind.
+  const usable = types.filter(isUsable);
+  const flagKey = kind === "email" ? "emailFlag" : kind === "phone" ? "phoneFlag" : undefined;
+  const ofKind = flagKey ? usable.filter((t) => t[flagKey] === true) : usable;
+  const match = (ofKind.length ? ofKind : usable).find((t) => matchesLabel(t, name));
   return match ? toResolved(match) : undefined;
 }
 
@@ -168,7 +175,7 @@ export async function resolveCommunicationTypes(
     const r = request[kind]!;
     const name = r.typeName?.trim();
     if (name) {
-      const found = findTypeByName(types, name);
+      const found = findTypeByName(types, name, kind);
       if (!found) throw unknownNameError(kind, name, types);
       out[kind] = found;
       continue;

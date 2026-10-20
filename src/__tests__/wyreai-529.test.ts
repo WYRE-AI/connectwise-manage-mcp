@@ -167,6 +167,14 @@ describe("cw_create_contact communication types", () => {
     expect(postBody(f).communicationItems[0].type).toEqual({ id: 1, name: "Work Email" });
   });
 
+  it("matches a caller name only against types of the requested kind", async () => {
+    const f = stubFetch();
+    // "Office" is a phone type in the fixture, so it must not be used for email.
+    const msg = toolError(await create({ email: "a@b.co", emailTypeName: "Office" }));
+    expect(msg).toMatch(/No email communication type named "Office"/);
+    expect(postCalls(f)).toHaveLength(0);
+  });
+
   it("errors on an unknown caller name, listing available types, and does not POST", async () => {
     const f = stubFetch();
     const msg = toolError(await create({ email: "a@b.co", emailTypeName: "Nope" }));
