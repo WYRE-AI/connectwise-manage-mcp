@@ -110,6 +110,7 @@ export class CwManageClient {
   private readonly authHeader: string;
   private readonly clientId: string;
   private readonly apiBase: string;
+  private readonly companyId: string;
   private readonly dispatcher: Agent | undefined;
   private readonly untrustedBaseUrl: string | undefined;
 
@@ -118,6 +119,7 @@ export class CwManageClient {
     const credentials = `${config.companyId}+${config.publicKey}:${config.privateKey}`;
     this.authHeader = `Basic ${Buffer.from(credentials).toString("base64")}`;
     this.clientId = config.clientId;
+    this.companyId = config.companyId;
     this.untrustedBaseUrl = config.untrustedBaseUrl ? config.baseUrl : undefined;
     // Append the standard API path if the URL doesn't already contain it
     this.apiBase = config.baseUrl.includes("/v4_6_release/")
@@ -137,6 +139,15 @@ export class CwManageClient {
       process.env.CW_MANAGE_REJECT_UNAUTHORIZED === "false"
         ? new Agent({ connect: { rejectUnauthorized: false } })
         : undefined;
+  }
+
+  /**
+   * Non-secret identity of the ConnectWise tenant this client talks to
+   * (API base URL + company id). Safe to use as a cache key: it never
+   * includes keys or credentials.
+   */
+  get connectionKey(): string {
+    return `${this.apiBase}|${this.companyId}`;
   }
 
   private defaultHeaders(): Record<string, string> {

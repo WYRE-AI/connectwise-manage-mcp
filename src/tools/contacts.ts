@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { resolveCommunicationTypes } from "./communication-types.js";
 import { buildContactSearchQuery } from "./contact-search.js";
 import {
   asContactList,
@@ -98,7 +99,7 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
 
   server.tool(
     "cw_create_contact",
-    "Create a new contact.",
+    "Create a new contact. Communication type names vary per ConnectWise tenant (some have no type named \"Email\" or \"Direct\"), so the email and phone types are looked up from GET /company/communicationTypes (emailFlag / phoneFlag) unless you pass emailTypeId / emailTypeName / phoneTypeId / phoneTypeName. An id wins over a name; a name is matched case-insensitively and an unknown name returns the available types. Use cw_list_communication_types to see the ids.",
     {
       firstName: z.string().describe("First name"),
       lastName: z.string().describe("Last name"),
@@ -106,8 +107,12 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
       email: z.string().optional().describe("Email address"),
       phone: z.string().optional().describe("Phone number"),
       title: z.string().optional().describe("Job title"),
+      emailTypeId: z.number().optional().describe("Communication type id for the email item. Wins over emailTypeName."),
+      emailTypeName: z.string().optional().describe("Communication type name for the email item (matched case-insensitively against description or name)."),
+      phoneTypeId: z.number().optional().describe("Communication type id for the phone item. Wins over phoneTypeName."),
+      phoneTypeName: z.string().optional().describe("Communication type name for the phone item (matched case-insensitively against description or name)."),
     },
-    async ({ firstName, lastName, companyId, email, phone, title }) => {
+    async ({ firstName, lastName, companyId, email, phone, title, emailTypeId, emailTypeName, phoneTypeId, phoneTypeName }) => {
       const body: Record<string, unknown> = {
         firstName,
         lastName,
@@ -115,13 +120,18 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
       };
       if (title) body.title = title;
 
-      // CW Manage uses communicationItems for email/phone
+      // CW Manage uses communicationItems for email/phone. Type names differ
+      // per tenant, so resolve the type instead of hardcoding one.
+      const types = await resolveCommunicationTypes(client, {
+        email: { wanted: !!email, typeId: emailTypeId, typeName: emailTypeName },
+        phone: { wanted: !!phone, typeId: phoneTypeId, typeName: phoneTypeName },
+      });
       const comms: Array<Record<string, unknown>> = [];
-      if (email) {
-        comms.push({ type: { name: "Email" }, value: email, communicationType: "Email" });
+      if (email && types.email) {
+        comms.push({ type: types.email, value: email, communicationType: "Email" });
       }
-      if (phone) {
-        comms.push({ type: { name: "Direct" }, value: phone, communicationType: "Phone" });
+      if (phone && types.phone) {
+        comms.push({ type: types.phone, value: phone, communicationType: "Phone" });
       }
       if (comms.length) body.communicationItems = comms;
 
@@ -131,8 +141,26 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
   );
 
   server.tool(
+    "cw_list_communication_types",
+    "List the communication types configured in this ConnectWise tenant (GET /company/communicationTypes). Records include id, description, emailFlag, phoneFlag, faxFlag, and defaultFlag. Use the ids as emailTypeId / phoneTypeId on cw_create_contact, or as type { \"id\": <id> } in communicationItems on cw_update_contact.",
+    {
+      conditions: z.string().optional().describe('Filter conditions, e.g. emailFlag = true'),
+      page: z.number().optional().describe("Page number (default: 1)"),
+      pageSize: z.number().optional().describe("Results per page (default: 100, max: 1000)"),
+    },
+    async ({ conditions, page, pageSize }) => {
+      const result = await client.get("/company/communicationTypes", {
+        conditions,
+        page: page ?? 1,
+        pageSize: pageSize ?? 100,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
     "cw_update_contact",
-    "Update an existing contact with JSON Patch (Manage PATCH /company/contacts/{id}). Operations use the same shape as cw_update_ticket and cw_update_company: op (replace, add, or remove), path, and value. Add and replace require value. Common paths: firstName, lastName, title, inactiveFlag, site (value is { \"id\": <siteId> }), communicationItems (email and phone — replacing the array replaces every item, so include items to keep; each item is { \"type\": { \"name\": \"Email\" }, \"value\": \"...\", \"communicationType\": \"Email\" } or communicationType \"Phone\"), and customFields (array of { \"id\", \"value\" }). Contact types such as \"Decision Maker\" are a child collection. Manage accepts typeIds only when creating a contact and rejects types on this patch. Use cw_update_contact_types to add or remove a type.",
+    "Update an existing contact with JSON Patch (Manage PATCH /company/contacts/{id}). Operations use the same shape as cw_update_ticket and cw_update_company: op (replace, add, or remove), path, and value. Add and replace require value. Common paths: firstName, lastName, title, inactiveFlag, site (value is { \"id\": <siteId> }), communicationItems (email and phone — replacing the array replaces every item, so include items to keep; each item is { \"type\": { \"id\": <communicationTypeId> }, \"value\": \"...\", \"communicationType\": \"Email\" } or communicationType \"Phone\". Communication type names vary per tenant, so use the type id from cw_list_communication_types rather than a hardcoded name like \"Email\"), and customFields (array of { \"id\", \"value\" }). Contact types such as \"Decision Maker\" are a child collection. Manage accepts typeIds only when creating a contact and rejects types on this patch. Use cw_update_contact_types to add or remove a type.",
     {
       id: z.number().describe("Contact ID"),
       operations: z
