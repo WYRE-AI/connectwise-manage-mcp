@@ -63,6 +63,7 @@ import {
   type CwManageConfig,
 } from "./mcp-server.js";
 import { verifyS2sHeader, S2S_HEADER } from "./s2s-verify.js";
+import { MAX_REQUEST_BODY_BYTES } from "./input-limits.js";
 import { isValidHostHeader, parseRequestTarget } from "./request-target.js";
 
 /**
@@ -292,6 +293,24 @@ export async function startHttpTransport(): Promise<HttpServer> {
         return;
       }
 
+      // Reject oversized bodies up front (GHSA-f897-62hf-6gxq, WYREAI-454).
+      // After the S2S check so unauthenticated callers still get 401.
+      const contentLength = Number(req.headers["content-length"]);
+      if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BODY_BYTES) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            error: {
+              code: -32600,
+              message: `Request body exceeds ${MAX_REQUEST_BODY_BYTES} bytes`,
+            },
+            id: null,
+          }),
+        );
+        return;
+      }
+
       if (req.method !== "POST") {
         res.writeHead(405, { "Content-Type": "application/json" });
         res.end(
@@ -402,6 +421,7 @@ export async function startHttpTransport(): Promise<HttpServer> {
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: undefined,
           enableJsonResponse: true,
+          maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
         });
 
         res.on("close", () => {

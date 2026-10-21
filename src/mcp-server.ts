@@ -15,6 +15,7 @@
  * so credential-requiring calls fail with a clear, graceful message.
  */
 
+import { MAX_TOOL_INPUT_ELEMENTS } from "./input-limits.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getConfig, CwManageClient, type CwManageConfig } from "./api-client.js";
 import { registerCardResources } from "./resources.js";
@@ -114,6 +115,8 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
           "io.modelcontextprotocol/ui": {},
         },
       },
+      // CVE-2026-111768 / GHSA-46jr-4wx8-v453 (WYREAI-454)
+      maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
     }
   );
 

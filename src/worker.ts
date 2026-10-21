@@ -39,6 +39,7 @@ import {
   buildConfig,
   type CwManageConfig,
 } from "./mcp-server.js";
+import { MAX_REQUEST_BODY_BYTES } from "./input-limits.js";
 
 export interface Env {
   CW_MANAGE_COMPANY_ID?: string;
@@ -181,6 +182,7 @@ export default {
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
+        maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       });
       await server.connect(transport);
 
