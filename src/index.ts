@@ -66,6 +66,13 @@ import { verifyS2sHeader, S2S_HEADER } from "./s2s-verify.js";
 import { MAX_REQUEST_BODY_BYTES } from "./input-limits.js";
 import { isValidHostHeader, parseRequestTarget } from "./request-target.js";
 
+const MISSING_GATEWAY_CREDENTIALS_BODY = {
+  error: "Missing credentials",
+  message:
+    "Gateway mode requires X-CW-Company-Id, X-CW-Public-Key, X-CW-Private-Key, and X-CW-Client-Id headers",
+  required: ["X-CW-Company-Id", "X-CW-Public-Key", "X-CW-Private-Key", "X-CW-Client-Id"],
+};
+
 /**
  * Public example values. A copied placeholder must not verify as a real
  * secret, and MCP_ALLOW_INSECURE_DEV does not bypass this list.
@@ -293,8 +300,28 @@ export async function startHttpTransport(): Promise<HttpServer> {
         return;
       }
 
+      if (req.method !== "POST") {
+        res.writeHead(405, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: "Method not allowed" },
+            id: null,
+          }),
+        );
+        return;
+      }
+
+      // Gateway mode: a request without the vendor credential headers is a
+      // 401 whatever its size, so check presence before the 413.
+      if (isGatewayMode && resolveGatewayConfig((name) => headerValue(req.headers[name])).error) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(MISSING_GATEWAY_CREDENTIALS_BODY));
+        return;
+      }
+
       // Reject oversized bodies up front (GHSA-f897-62hf-6gxq, WYREAI-454).
-      // After the S2S check so unauthenticated callers still get 401.
+      // After the S2S, method and credential checks so those keep their 401/405.
       const contentLength = Number(req.headers["content-length"]);
       if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BODY_BYTES) {
         res.writeHead(413, { "Content-Type": "application/json" });
@@ -305,18 +332,6 @@ export async function startHttpTransport(): Promise<HttpServer> {
               code: -32600,
               message: `Request body exceeds ${MAX_REQUEST_BODY_BYTES} bytes`,
             },
-            id: null,
-          }),
-        );
-        return;
-      }
-
-      if (req.method !== "POST") {
-        res.writeHead(405, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            error: { code: -32000, message: "Method not allowed" },
             id: null,
           }),
         );
@@ -396,19 +411,7 @@ export async function startHttpTransport(): Promise<HttpServer> {
           );
           if (error) {
             res.writeHead(401, { "Content-Type": "application/json" });
-            res.end(
-              JSON.stringify({
-                error: "Missing credentials",
-                message:
-                  "Gateway mode requires X-CW-Company-Id, X-CW-Public-Key, X-CW-Private-Key, and X-CW-Client-Id headers",
-                required: [
-                  "X-CW-Company-Id",
-                  "X-CW-Public-Key",
-                  "X-CW-Private-Key",
-                  "X-CW-Client-Id",
-                ],
-              }),
-            );
+            res.end(JSON.stringify(MISSING_GATEWAY_CREDENTIALS_BODY));
             return;
           }
           configOverride = config;

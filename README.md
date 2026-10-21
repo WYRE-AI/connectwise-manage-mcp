@@ -67,8 +67,8 @@ Entra OAuth discovery routes stay available when `MCP_OAUTH_ENABLED=true`. `POST
 
 ### Request limits
 
-- `POST /mcp` bodies larger than 256 KiB (262,144 bytes) are rejected with `413` and a JSON-RPC error. The check runs after the `X-Gateway-S2S` check, so unauthenticated requests still get `401`. Chunked bodies without `Content-Length` are capped by the SDK transport.
-- A tool call whose arguments contain more than 10,000 array elements and object keys (counted at every depth) returns an `isError` result without running the tool.
+- `POST /mcp` bodies larger than 256 KiB (262,144 bytes) are rejected with `413` and a JSON-RPC error. The check runs after the `X-Gateway-S2S` check, the method check (`405`) and, in gateway mode, the credential-header check, so those requests still get `401`/`405` whatever their size. Chunked bodies without `Content-Length` are capped by the SDK transport.
+- A tool call whose arguments contain more than 10,000 array elements and object keys (counted at every depth) returns an `isError` result ("Tool input exceeds the maximum of 10000 elements") without running the tool.
 
 These limits address CVE-2026-111768 / GHSA-46jr-4wx8-v453 (memory exhaustion during validation) and GHSA-f897-62hf-6gxq (no request body or batch cap). Tracking: WYREAI-454.
 

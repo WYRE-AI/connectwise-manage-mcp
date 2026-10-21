@@ -15,8 +15,9 @@
  * so credential-requiring calls fail with a clear, graceful message.
  */
 
-import { MAX_TOOL_INPUT_ELEMENTS } from "./input-limits.js";
+import { toolInputTooLarge, toolInputTooLargeResult } from "./input-limits.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { getConfig, CwManageClient, type CwManageConfig } from "./api-client.js";
 import { registerCardResources } from "./resources.js";
 import { registerTicketTools } from "./tools/tickets.js";
@@ -115,10 +116,27 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
           "io.modelcontextprotocol/ui": {},
         },
       },
-      // CVE-2026-111768 / GHSA-46jr-4wx8-v453 (WYREAI-454)
-      maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
     }
   );
+
+  // CVE-2026-111768 / GHSA-46jr-4wx8-v453 (WYREAI-454): cap tool-call input
+  // before the SDK validates it. Done here rather than via the SDK's
+  // `maxToolInputElements` option, whose error echoes the tool name.
+  const lowLevel = server.server;
+  const setHandler = lowLevel.setRequestHandler.bind(lowLevel) as (
+    schema: unknown,
+    handler: (request: { params?: { arguments?: unknown } }, extra: unknown) => unknown,
+  ) => void;
+  (lowLevel as unknown as { setRequestHandler: typeof setHandler }).setRequestHandler = (schema, handler) =>
+    setHandler(
+      schema,
+      schema === CallToolRequestSchema
+        ? (request, extra) =>
+            toolInputTooLarge(request.params?.arguments)
+              ? toolInputTooLargeResult()
+              : handler(request, extra)
+        : handler,
+    );
 
   // MCP Apps (SEP-1865): the ui:// ticket card is static embedded HTML, so it
   // is served with or without credentials (hosts may prefetch it).

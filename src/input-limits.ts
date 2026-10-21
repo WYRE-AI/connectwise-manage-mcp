@@ -41,17 +41,21 @@ export function countToolInputElements(value: unknown, max: number): number {
   return count;
 }
 
+/** True when `args` holds more than `max` array elements and object keys, counted at every depth. */
 export function toolInputTooLarge(args: unknown, max = MAX_TOOL_INPUT_ELEMENTS): boolean {
   return countToolInputElements(args, max) > max;
 }
 
-/** Same result the SDK's McpServer `maxToolInputElements` option returns. */
-export function toolInputTooLargeResult(toolName: string, max = MAX_TOOL_INPUT_ELEMENTS) {
+/**
+ * Same result shape the SDK's McpServer `maxToolInputElements` option returns,
+ * with a fixed message so no caller-supplied value (tool name, arguments) is echoed.
+ */
+export function toolInputTooLargeResult(max = MAX_TOOL_INPUT_ELEMENTS) {
   return {
     content: [
       {
         type: "text" as const,
-        text: `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${max} elements`,
+        text: `Tool input exceeds the maximum of ${max} elements`,
       },
     ],
     isError: true as const,

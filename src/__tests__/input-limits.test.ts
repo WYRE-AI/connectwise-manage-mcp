@@ -55,11 +55,11 @@ describe("countToolInputElements", () => {
   });
 
   it("builds the SDK-shaped error result", () => {
-    expect(toolInputTooLargeResult("t")).toEqual({
+    expect(toolInputTooLargeResult()).toEqual({
       content: [
         {
           type: "text",
-          text: "Invalid arguments for tool t: arguments contain more than the maximum of 10000 elements",
+          text: "Tool input exceeds the maximum of 10000 elements",
         },
       ],
       isError: true,
@@ -101,5 +101,6 @@ describe("createMcpServer tools/call element cap", () => {
     expect(result.isError).toBe(true);
     const text = (result.content as Array<{ text: string }>)[0].text;
     expect(text).toContain("maximum of 10000 elements");
+    expect(text).not.toContain("cw_search_tickets");
   });
 });
