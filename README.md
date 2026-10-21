@@ -135,7 +135,7 @@ needed.
 ### Time Entries
 - `cw_search_time_entries` — Search time entries
 - `cw_get_time_entry` — Get a time entry by ID
-- `cw_create_time_entry` — Create a new time entry. `emailContactFlag`, `emailResourceFlag`, and `emailCcFlag` are sent as false unless you set them, so an omitted flag cannot email the ticket contact.
+- `cw_create_time_entry` — Create a new time entry. ConnectWise ignores the entry's `emailContactFlag`, `emailResourceFlag`, and `emailCcFlag` on create and copies the ticket's `automaticEmail*` flags instead. For service and project tickets, each email flag left false (the default) has its matching ticket flag turned off for the create and then restored. If that toggle fails, the entry is not created. `suppressTicketAutoEmail: false` turns the toggle off. See [Notes, time entries and customer email](#notes-time-entries-and-customer-email).
 - `cw_update_time_entry` — Correct a time entry (JSON Patch on `PATCH /time/entries/{id}`). Use this to fix `actualHours` when a metered agreement rounds to 0.25.
 - `cw_delete_time_entry` — Delete a time entry (`DELETE /time/entries/{id}`). Manage rejects deletes of entries that are already billed.
 
@@ -221,6 +221,17 @@ Two limits of the ConnectWise API are worth knowing before using these. There is
 
 ### Health
 - `cw_test_connection` — Test connection (hits `/system/info`)
+
+### Notes, time entries and customer email
+
+- **The ticket decides who gets emailed.** ConnectWise sends email to the recipients set by the ticket's Automatic Email flags: `automaticEmailContactFlag`, `automaticEmailResourceFlag`, `automaticEmailCcFlag`, and the `automaticEmailCc` addresses.
+- **Time entries.** ConnectWise has no per-entry override for these emails. On create, it ignores the entry's `emailContactFlag`, `emailResourceFlag`, and `emailCcFlag`, copies the ticket's flags onto the new entry, and emails accordingly. To keep a recipient off the email, `cw_create_time_entry` turns that ticket flag off for the instant of the create and then turns it back on. This happens for every entry flag that is false (the default) where the ticket flag is on.
+  - If the ticket can't be read or the flag can't be turned off (for example, the API member can't edit tickets), the entry is **not created**.
+  - If turning the flag back on fails, the entry is returned as an error with a `WARNING` naming each ticket flag left off. Turn those back on with `cw_update_ticket`, or with `PATCH /project/tickets/{id}` for a project ticket.
+  - During that brief window, other entries logged on the same ticket also miss auto-email. The ticket PATCH also updates the ticket's `lastUpdated`, and that can fire ticket-update workflow rules.
+  - Pass `suppressTicketAutoEmail: false` to skip the toggle and keep ConnectWise's default behaviour. Entries charged to a charge code or an activity never touch a ticket.
+- **Notes.** A ticket note emails only when `processNotifications` is true on the note **and** the matching ticket Automatic Email flag is on. `cw_add_ticket_note` sets `processNotifications` when you pass `emailContactFlag`, `emailResourceFlag`, or `emailCcFlag` as true, unless you set `processNotifications` yourself. Those flag names are never posted on the note itself.
+- **No per-note recipients.** The ConnectWise note API can't take recipients or CC addresses for an individual note. To change who gets a note's email, change the ticket's Automatic Email flags and `automaticEmailCc` (for example with `cw_update_ticket`) before adding the note.
 
 ## Usage
 
