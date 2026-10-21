@@ -8,7 +8,9 @@ import worker from "../worker.js";
 import { buildTicketNoteBody, SERVICE_NOTE_REJECTED_EMAIL_FIELDS } from "../tools/note-payload.js";
 import {
   buildCreateTimeEntryBody,
+  activeTicketLockCount,
   createTimeEntryWithEmailGuard,
+  withTicketLock,
   type TimeEntryClient,
 } from "../tools/time-entries.js";
 
@@ -494,6 +496,194 @@ describe("createTimeEntryWithEmailGuard (WYREAI-495)", () => {
       emailCcFlag: true,
     });
     expect(log).toEqual(["POST /time/entries"]);
+  });
+});
+
+describe("per-ticket lock around the auto-email guard (WYREAI-495)", () => {
+  const FLAG_NAMES = ["automaticEmailContactFlag", "automaticEmailResourceFlag", "automaticEmailCcFlag"] as const;
+
+  function deferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  /**
+   * Fake ConnectWise holding real ticket state: PATCH mutates it, GET reads it,
+   * and POST snapshots the ticket's flags at the instant the entry is created.
+   */
+  function statefulClient(
+    tickets: Record<string, Record<string, boolean>>,
+    opts: { connectionKey?: string; postGate?: (notes: string) => Promise<void>; postFail?: (notes: string) => boolean } = {},
+  ) {
+    const log: string[] = [];
+    const flagsAtPost: Record<string, Record<string, boolean>> = {};
+    const client: TimeEntryClient = {
+      connectionKey: opts.connectionKey,
+      get: vi.fn(async (path: string) => {
+        await tick();
+        log.push(`GET ${path}`);
+        return { ...tickets[path] };
+      }) as unknown as TimeEntryClient["get"],
+      patch: vi.fn(async (path: string, ops: { path: string; value: boolean }[]) => {
+        await tick();
+        for (const op of ops) tickets[path][op.path] = op.value;
+        log.push(`PATCH ${path} ${ops.map((o) => `${o.path}=${o.value}`).join(",")}`);
+        return {};
+      }) as unknown as TimeEntryClient["patch"],
+      post: vi.fn(async (_path: string, body: Record<string, unknown>) => {
+        const notes = String(body.notes);
+        const ticketPath =
+          body.chargeToType === "ProjectTicket"
+            ? `/project/tickets/${String(body.chargeToId)}`
+            : `/service/tickets/${String(body.chargeToId)}`;
+        flagsAtPost[notes] = { ...tickets[ticketPath] };
+        log.push(`POST ${notes} start`);
+        if (opts.postGate) await opts.postGate(notes);
+        await tick();
+        log.push(`POST ${notes} end`);
+        if (opts.postFail?.(notes)) throw new Error(`ConnectWise API POST /time/entries returned 500 (reference x)`);
+        return { id: notes, emailContactFlag: false, emailResourceFlag: false, emailCcFlag: false };
+      }) as unknown as TimeEntryClient["post"],
+    };
+    return { client, log, flagsAtPost };
+  }
+
+  const allOn = () => ({
+    automaticEmailContactFlag: true,
+    automaticEmailResourceFlag: true,
+    automaticEmailCcFlag: true,
+  });
+
+  it("serializes two concurrent creates on one ticket: no flag on during a post, original flags restored", async () => {
+    const tickets = { "/service/tickets/42": allOn() };
+    const { client, log, flagsAtPost } = statefulClient(tickets, { connectionKey: "https://cw.example/apis|acme" });
+
+    const [a, b] = await Promise.all([
+      createTimeEntryWithEmailGuard(client, { ...baseEntry, notes: "A" }),
+      createTimeEntryWithEmailGuard(client, { ...baseEntry, notes: "B" }),
+    ]);
+
+    expect(a.isError).toBeUndefined();
+    expect(b.isError).toBeUndefined();
+    for (const notes of ["A", "B"]) {
+      for (const flag of FLAG_NAMES) expect(flagsAtPost[notes][flag]).toBe(false);
+    }
+    // A's whole read/toggle/post/restore finishes before B reads the ticket,
+    // so B sees the original (on) flags and restores them too.
+    const off = "automaticEmailContactFlag=false,automaticEmailResourceFlag=false,automaticEmailCcFlag=false";
+    const on = "automaticEmailContactFlag=true,automaticEmailResourceFlag=true,automaticEmailCcFlag=true";
+    expect(log).toEqual([
+      "GET /service/tickets/42",
+      `PATCH /service/tickets/42 ${off}`,
+      "POST A start",
+      "POST A end",
+      `PATCH /service/tickets/42 ${on}`,
+      "GET /service/tickets/42",
+      `PATCH /service/tickets/42 ${off}`,
+      "POST B start",
+      "POST B end",
+      `PATCH /service/tickets/42 ${on}`,
+    ]);
+    expect(tickets["/service/tickets/42"]).toEqual(allOn());
+    expect(activeTicketLockCount()).toBe(0);
+  });
+
+  it("runs creates on different tickets in parallel", async () => {
+    const tickets = {
+      "/service/tickets/42": allOn(),
+      "/service/tickets/43": allOn(),
+    };
+    const gateA = deferred();
+    const { client, log } = statefulClient(tickets, {
+      connectionKey: "k",
+      postGate: (notes) => (notes === "A" ? gateA.promise : Promise.resolve()),
+    });
+
+    const a = createTimeEntryWithEmailGuard(client, { ...baseEntry, notes: "A" });
+    // Ticket 43's create completes while ticket 42's POST is still held open.
+    const b = await createTimeEntryWithEmailGuard(client, { ...baseEntry, chargeToId: 43, notes: "B" });
+    expect(b.isError).toBeUndefined();
+    expect(log).toContain("POST A start");
+    expect(log).not.toContain("POST A end");
+    expect(tickets["/service/tickets/43"]).toEqual(allOn());
+
+    gateA.resolve();
+    expect((await a).isError).toBeUndefined();
+    expect(tickets["/service/tickets/42"]).toEqual(allOn());
+    expect(activeTicketLockCount()).toBe(0);
+  });
+
+  it("does not share a lock between different connections on the same ticket id", async () => {
+    const gateA = deferred();
+    const ticketsA = { "/service/tickets/42": allOn() };
+    const ticketsB = { "/service/tickets/42": allOn() };
+    const first = statefulClient(ticketsA, { connectionKey: "tenant-a", postGate: () => gateA.promise });
+    const second = statefulClient(ticketsB, { connectionKey: "tenant-b" });
+
+    const a = createTimeEntryWithEmailGuard(first.client, { ...baseEntry, notes: "A" });
+    const b = await createTimeEntryWithEmailGuard(second.client, { ...baseEntry, notes: "B" });
+    expect(b.isError).toBeUndefined();
+    expect(first.log).not.toContain("POST A end");
+
+    gateA.resolve();
+    await a;
+    expect(activeTicketLockCount()).toBe(0);
+  });
+
+  it("releases the lock when a guarded create fails, and the next create still restores the original flags", async () => {
+    const tickets = { "/service/tickets/42": allOn() };
+    const { client, flagsAtPost } = statefulClient(tickets, {
+      connectionKey: "k",
+      postFail: (notes) => notes === "A",
+    });
+
+    const [a, b] = await Promise.all([
+      createTimeEntryWithEmailGuard(client, { ...baseEntry, notes: "A" }),
+      createTimeEntryWithEmailGuard(client, { ...baseEntry, notes: "B" }),
+    ]);
+    expect(a.isError).toBe(true);
+    expect(b.isError).toBeUndefined();
+    for (const flag of FLAG_NAMES) expect(flagsAtPost.B[flag]).toBe(false);
+    expect(tickets["/service/tickets/42"]).toEqual(allOn());
+    expect(activeTicketLockCount()).toBe(0);
+  });
+
+  it("withTicketLock: a rejection releases the lock and does not poison the chain", async () => {
+    const order: string[] = [];
+    const gate = deferred();
+    const first = withTicketLock("k|/service/tickets/1", async () => {
+      order.push("first start");
+      await gate.promise;
+      order.push("first throw");
+      throw new Error("boom");
+    });
+    const second = withTicketLock("k|/service/tickets/1", async () => {
+      order.push("second");
+      return "ok";
+    });
+    await tick();
+    expect(order).toEqual(["first start"]);
+    expect(activeTicketLockCount()).toBe(1);
+
+    gate.resolve();
+    await expect(first).rejects.toThrow("boom");
+    await expect(second).resolves.toBe("ok");
+    expect(order).toEqual(["first start", "first throw", "second"]);
+    expect(activeTicketLockCount()).toBe(0);
+
+    // A synchronous throw inside fn is also contained.
+    await expect(
+      withTicketLock("k|/service/tickets/1", () => {
+        throw new Error("sync");
+      }),
+    ).rejects.toThrow("sync");
+    await expect(withTicketLock("k|/service/tickets/1", async () => 3)).resolves.toBe(3);
+    expect(activeTicketLockCount()).toBe(0);
   });
 });
 

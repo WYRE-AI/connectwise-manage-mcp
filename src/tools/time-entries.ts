@@ -60,7 +60,65 @@ export interface CreateTimeEntryToolInput extends CreateTimeEntryInput {
   suppressTicketAutoEmail?: boolean;
 }
 
-export type TimeEntryClient = Pick<CwManageClient, "get" | "post" | "patch">;
+export type TimeEntryClient = Pick<CwManageClient, "get" | "post" | "patch"> & {
+  /** Non-secret tenant identity (API base URL + company id); keys the per-ticket lock. */
+  readonly connectionKey?: string;
+};
+
+/**
+ * Per-ticket async lock (promise-chain mutex), in-process only.
+ *
+ * The guarded create is read flags -> turn off -> POST entry -> restore, and
+ * ConnectWise has no ticket lock. Two concurrent creates on one ticket could
+ * interleave so that one entry is posted while the other has already restored
+ * the flags (or one reads the other's "off" state as the original), and the
+ * recipient is emailed. Serializing the whole sequence per ticket closes that
+ * within this process.
+ *
+ * Limit: this only serializes calls inside one process (one stdio server, one
+ * Node HTTP server, or one Worker isolate). It does not coordinate across
+ * replicas, separate Worker isolates, or other ConnectWise integrations and
+ * humans editing the same ticket.
+ *
+ * Each waiter chains on the previous tail with its rejection swallowed, so one
+ * failure never poisons later callers; the map entry is deleted once the last
+ * holder finishes, so idle tickets do not leak.
+ */
+const ticketLocks = new Map<string, Promise<void>>();
+
+/** Fallback lock identity for a client with no connectionKey (one id per client object). */
+const anonymousClientKeys = new WeakMap<object, string>();
+let anonymousClientCounter = 0;
+
+function clientLockKey(client: TimeEntryClient): string {
+  if (typeof client.connectionKey === "string" && client.connectionKey) return client.connectionKey;
+  let key = anonymousClientKeys.get(client);
+  if (!key) {
+    key = `client#${++anonymousClientCounter}`;
+    anonymousClientKeys.set(client, key);
+  }
+  return key;
+}
+
+export async function withTicketLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = ticketLocks.get(key) ?? Promise.resolve();
+  const run = prev.then(fn);
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  ticketLocks.set(key, tail);
+  try {
+    return await run;
+  } finally {
+    if (ticketLocks.get(key) === tail) ticketLocks.delete(key);
+  }
+}
+
+/** Number of tickets with a held or queued lock. Exposed for tests. */
+export function activeTicketLockCount(): number {
+  return ticketLocks.size;
+}
 
 export type TimeEntryToolResult = {
   content: { type: "text"; text: string }[];
@@ -141,6 +199,10 @@ function createdResult(entry: unknown, body: Record<string, unknown>, restoreWar
  * Fails closed: if the ticket cannot be read or the flags cannot be turned
  * off, the entry is not created. If the restore fails, the entry is returned
  * with isError and a warning naming each flag left off.
+ *
+ * The read/toggle/post/restore sequence is serialized per ticket (keyed by the
+ * client's connectionKey plus the ticket path) within this process only; see
+ * withTicketLock for what that does not cover.
  */
 export async function createTimeEntryWithEmailGuard(
   client: TimeEntryClient,
@@ -167,6 +229,19 @@ export async function createTimeEntryWithEmailGuard(
     }
   }
 
+  return withTicketLock(`${clientLockKey(client)}|${target.path}`, () =>
+    guardedCreate(client, body, target, ticketId, wantedOff),
+  );
+}
+
+/** Read flags, turn off, POST, restore. Always runs under withTicketLock for the ticket. */
+async function guardedCreate(
+  client: TimeEntryClient,
+  body: Record<string, unknown>,
+  target: { path: string; restoreHint: string },
+  ticketId: number,
+  wantedOff: readonly { entry: EntryEmailFlag; ticket: TicketEmailFlag }[],
+): Promise<TimeEntryToolResult> {
   let ticket: Record<string, unknown>;
   try {
     ticket =
@@ -277,7 +352,7 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
 
   server.tool(
     "cw_create_time_entry",
-    "Create a new time entry. ConnectWise ignores emailContactFlag, emailResourceFlag and emailCcFlag on create and copies the ticket's automaticEmailContactFlag, automaticEmailResourceFlag and automaticEmailCcFlag onto the new entry, so sending false alone does not stop the email. For ServiceTicket and ProjectTicket, this tool turns off each ticket flag whose entry flag is false (the default) for the instant of the create, then turns it back on. If it cannot read or turn off a flag, the entry is not created. If the restore fails, the entry is returned as an error with a warning naming the flags left off. During that brief window other entries on the ticket miss auto-email, and the ticket PATCH updates its lastUpdated. suppressTicketAutoEmail=false skips the toggle and uses ConnectWise's default behaviour. ChargeCode and Activity entries make no ticket calls. emailCc is sent only when you provide it.",
+    "Create a new time entry. ConnectWise ignores emailContactFlag, emailResourceFlag and emailCcFlag on create and copies the ticket's automaticEmailContactFlag, automaticEmailResourceFlag and automaticEmailCcFlag onto the new entry, so sending false alone does not stop the email. For ServiceTicket and ProjectTicket, this tool turns off each ticket flag whose entry flag is false (the default) for the instant of the create, then turns it back on. If it cannot read or turn off a flag, the entry is not created. If the restore fails, the entry is returned as an error with a warning naming the flags left off. Concurrent calls on the same ticket are serialized within this server process only, not across replicas or separate Worker isolates. During that brief window other entries on the ticket (from other processes or users) miss auto-email, and the ticket PATCH updates its lastUpdated. suppressTicketAutoEmail=false skips the toggle and uses ConnectWise's default behaviour. ChargeCode and Activity entries make no ticket calls. emailCc is sent only when you provide it.",
     {
       chargeToType: z.enum(["ServiceTicket", "ProjectTicket", "ChargeCode", "Activity"]).describe("What to charge the time to"),
       chargeToId: z.number().describe("ID of the ticket, charge code, or activity"),
