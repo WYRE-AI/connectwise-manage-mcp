@@ -14,12 +14,14 @@
  *    - X-CW-Private-Key
  *    - X-CW-Client-Id
  *    - X-CW-Url (optional)
+ *    - X-CW-Member-Id / X-CW-Force-Member-Id (optional, member attribution)
  * 2. Worker secrets / vars (env mode):
  *    - CW_MANAGE_COMPANY_ID
  *    - CW_MANAGE_PUBLIC_KEY
  *    - CW_MANAGE_PRIVATE_KEY
  *    - CW_MANAGE_CLIENT_ID
  *    - CW_MANAGE_URL (optional)
+ *    - CW_MANAGE_MEMBER_ID / CW_MANAGE_FORCE_MEMBER_ID (optional, member attribution)
  *
  * `tools/list` and `initialize` work without credentials; only `tools/call`
  * requires them.
@@ -39,6 +41,7 @@ import {
   buildConfig,
   type CwManageConfig,
 } from "./mcp-server.js";
+import { buildMemberPolicy } from "./member-policy.js";
 
 export interface Env {
   CW_MANAGE_COMPANY_ID?: string;
@@ -46,6 +49,8 @@ export interface Env {
   CW_MANAGE_PRIVATE_KEY?: string;
   CW_MANAGE_CLIENT_ID?: string;
   CW_MANAGE_URL?: string;
+  CW_MANAGE_MEMBER_ID?: string;
+  CW_MANAGE_FORCE_MEMBER_ID?: string;
   AUTH_MODE?: string;
   LOG_LEVEL?: string;
   /** Required in env mode when CW_MANAGE_* secrets are set. */
@@ -78,7 +83,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, X-CW-Company-Id, X-CW-Public-Key, X-CW-Private-Key, X-CW-Client-Id, X-CW-Url",
+    "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, X-CW-Company-Id, X-CW-Public-Key, X-CW-Private-Key, X-CW-Client-Id, X-CW-Url, X-CW-Member-Id, X-CW-Force-Member-Id",
   "Access-Control-Expose-Headers": "Mcp-Session-Id",
 };
 
@@ -132,7 +137,7 @@ export default {
                 "X-CW-Private-Key",
                 "X-CW-Client-Id",
               ],
-              optional: ["X-CW-Url"],
+              optional: ["X-CW-Url", "X-CW-Member-Id", "X-CW-Force-Member-Id"],
             },
             401,
           );
@@ -172,6 +177,7 @@ export default {
           env.CW_MANAGE_PRIVATE_KEY,
           env.CW_MANAGE_CLIENT_ID,
           env.CW_MANAGE_URL,
+          buildMemberPolicy(env.CW_MANAGE_MEMBER_ID, env.CW_MANAGE_FORCE_MEMBER_ID),
         );
         configOverride = config;
       }

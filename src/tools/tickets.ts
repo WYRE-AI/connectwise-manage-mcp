@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient, hasApiStatus } from "../api-client.js";
 import { buildTicketCard, TICKET_CARD_META } from "../card.builder.js";
 import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
+import { describeMemberPolicy, memberOverrideNotice, resolveMemberId } from "../member-policy.js";
 
 export function registerTicketTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -210,7 +211,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
     "cw_add_ticket_note",
     {
       description:
-        "Add a note to a service ticket. Use detailDescriptionFlag for a discussion note, internalAnalysisFlag for an internal-only note, or resolutionFlag for a resolution note. Defaults to a plain discussion note. Nothing is emailed unless processNotifications is true. emailContactFlag, emailResourceFlag, and emailCcFlag never default to true and are not sent: POST /service/tickets/{id}/notes (ServiceNote) does not have those fields (they belong to TimeEntry and to the ticket automaticEmail* fields). Sending them is what returns 400. A true flag only turns on processNotifications, unless you set processNotifications yourself. An explicit processNotifications false suppresses delivery even if a flag is true. When processNotifications is true and you did not set a type flag, this tool sets detailDescriptionFlag so Manage has a place to display the note. Recipients are the ticket's automaticEmailContactFlag, automaticEmailResourceFlag, automaticEmailCcFlag, and automaticEmailCc (cw_get_ticket / cw_update_ticket), not the note. emailCc is not sent; put CC addresses on the ticket automaticEmailCc field. To email one note and then stop, turn the ticket flag on, post with processNotifications true, then turn the flag off. memberId, when set, is sent as member.id and becomes the author. Omit memberId and Manage attributes the note to the API member that authenticated the call.",
+        "Add a note to a service ticket. Use detailDescriptionFlag for a discussion note, internalAnalysisFlag for an internal-only note, or resolutionFlag for a resolution note. Defaults to a plain discussion note. Nothing is emailed unless processNotifications is true. emailContactFlag, emailResourceFlag, and emailCcFlag never default to true and are not sent: POST /service/tickets/{id}/notes (ServiceNote) does not have those fields (they belong to TimeEntry and to the ticket automaticEmail* fields). Sending them is what returns 400. A true flag only turns on processNotifications, unless you set processNotifications yourself. An explicit processNotifications false suppresses delivery even if a flag is true. When processNotifications is true and you did not set a type flag, this tool sets detailDescriptionFlag so Manage has a place to display the note. Recipients are the ticket's automaticEmailContactFlag, automaticEmailResourceFlag, automaticEmailCcFlag, and automaticEmailCc (cw_get_ticket / cw_update_ticket), not the note. emailCc is not sent; put CC addresses on the ticket automaticEmailCc field. To email one note and then stop, turn the ticket flag on, post with processNotifications true, then turn the flag off. memberId, when set, is sent as member.id and becomes the author. Omit memberId and Manage attributes the note to the API member that authenticated the call. Member attribution policy: " + describeMemberPolicy(client.memberPolicy) + ".",
       inputSchema: {
         id: z.number().describe("Ticket ID"),
         text: z.string().describe("Note text content"),
@@ -262,6 +263,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       processNotifications,
       memberId,
     }) => {
+      const member = resolveMemberId(client.memberPolicy, memberId);
       const body = buildTicketNoteBody({
         text,
         detailDescriptionFlag,
@@ -273,7 +275,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         emailCcFlag,
         emailCc,
         processNotifications,
-        memberId,
+        memberId: member.memberId,
       });
 
       try {
@@ -283,7 +285,9 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
           internalAnalysisFlag,
           resolutionFlag,
         });
-        return { content: [{ type: "text" as const, text: JSON.stringify(mapped, null, 2) }] };
+        const content = [{ type: "text" as const, text: JSON.stringify(mapped, null, 2) }];
+        if (member.overrode) content.push({ type: "text" as const, text: memberOverrideNotice(memberId, member.memberId) });
+        return { content };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         return { content: [{ type: "text" as const, text: msg }], isError: true as const };

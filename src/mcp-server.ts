@@ -18,6 +18,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getConfig, CwManageClient, type CwManageConfig } from "./api-client.js";
 import { registerCardResources } from "./resources.js";
+import { buildMemberPolicy, type MemberPolicy } from "./member-policy.js";
 import { registerTicketTools } from "./tools/tickets.js";
 import { registerCompanyTools } from "./tools/companies.js";
 import { registerContactTools } from "./tools/contacts.js";
@@ -48,6 +49,7 @@ export function buildConfig(
   privateKey: string | undefined,
   clientId: string | undefined,
   baseUrl?: string,
+  memberPolicy?: MemberPolicy,
 ): { config?: CwManageConfig; error?: string } {
   if (!companyId || !publicKey || !privateKey || !clientId) {
     return {
@@ -67,6 +69,7 @@ export function buildConfig(
       publicKey,
       privateKey,
       clientId,
+      ...(memberPolicy ? { memberPolicy } : {}),
     },
   };
 }
@@ -87,6 +90,7 @@ export function resolveGatewayConfig(
     getHeader("x-cw-private-key"),
     getHeader("x-cw-client-id"),
     getHeader("x-cw-url"),
+    buildMemberPolicy(getHeader("x-cw-member-id"), getHeader("x-cw-force-member-id")),
   );
   // The caller picks this URL, so the client checks it before every request.
   if (result.config && getHeader("x-cw-url")) {
@@ -149,6 +153,8 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
               "                 https://api-au.myconnectwise.net",
               "    Self-hosted: https://cwm.yourcompany.com",
               "  CW_MANAGE_REJECT_UNAUTHORIZED - Set to 'false' for self-signed certs",
+              "  CW_MANAGE_MEMBER_ID         - Member id to attribute notes/time entries to",
+              "  CW_MANAGE_FORCE_MEMBER_ID   - 'true' to ignore caller memberId and always use it",
             ].join("\n"),
           },
         ],

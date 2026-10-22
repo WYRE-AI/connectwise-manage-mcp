@@ -16,6 +16,8 @@
  *                                  Cloud: api-na.myconnectwise.net, api-eu.myconnectwise.net, api-au.myconnectwise.net
  *                                  Self-hosted: https://cwm.yourcompany.com (or with full path)
  *   CW_MANAGE_REJECT_UNAUTHORIZED - Set to "false" for self-signed certs (default: "true")
+ *   CW_MANAGE_MEMBER_ID         - Member id to attribute notes/time entries to
+ *   CW_MANAGE_FORCE_MEMBER_ID   - "true" to ignore caller memberId and always use CW_MANAGE_MEMBER_ID
  *   MCP_TRANSPORT               - "stdio" (default) or "http"
  *   MCP_HTTP_PORT               - HTTP port (default: 8080)
  *   MCP_HTTP_HOST               - HTTP bind address. Defaults to 127.0.0.1.
