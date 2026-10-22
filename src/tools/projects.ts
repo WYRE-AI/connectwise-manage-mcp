@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient, hasApiStatus } from "../api-client.js";
 import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
+import { describeMemberPolicy, memberOverrideNotice, resolveMemberId } from "../member-policy.js";
 
 export function registerProjectTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -104,7 +105,7 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
 
   server.tool(
     "cw_add_project_ticket_note",
-    "Add a note to a project ticket. Use internalAnalysisFlag for internal-only notes or resolutionFlag for resolution notes. Defaults to a plain discussion note. emailContactFlag, emailResourceFlag, and emailCcFlag are not note fields, are not sent, and never default to true. memberId is sent as member.id only when set.",
+    "Add a note to a project ticket. Use internalAnalysisFlag for internal-only notes or resolutionFlag for resolution notes. Defaults to a plain discussion note. emailContactFlag, emailResourceFlag, and emailCcFlag are not note fields, are not sent, and never default to true. memberId is sent as member.id only when set. Member attribution policy: " + describeMemberPolicy(client.memberPolicy) + ".",
     {
       id: z.number().describe("Project ticket ID"),
       text: z.string().describe("Note text content"),
@@ -119,12 +120,13 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
         .describe("Author member id, sent as member { id } only when set. Omit and Manage attributes the note to the API member."),
     },
     async ({ id, text, detailDescriptionFlag, internalAnalysisFlag, resolutionFlag, memberId }) => {
+      const member = resolveMemberId(client.memberPolicy, memberId);
       const body = buildTicketNoteBody({
         text,
         detailDescriptionFlag,
         internalAnalysisFlag,
         resolutionFlag,
-        memberId,
+        memberId: member.memberId,
       });
 
       try {
@@ -134,7 +136,9 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
           internalAnalysisFlag,
           resolutionFlag,
         });
-        return { content: [{ type: "text" as const, text: JSON.stringify(mapped, null, 2) }] };
+        const content = [{ type: "text" as const, text: JSON.stringify(mapped, null, 2) }];
+        if (member.overrode) content.push({ type: "text" as const, text: memberOverrideNotice(memberId, member.memberId) });
+        return { content };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         return { content: [{ type: "text" as const, text: msg }], isError: true as const };
