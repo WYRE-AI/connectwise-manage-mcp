@@ -464,7 +464,7 @@ async function guardedCreate(
       content: [
         {
           type: "text",
-          text: `Time entry not created: ${errorMessage(postError)}\n\n${warning}`,
+          text: `Time entry creation failed or could not be confirmed; check ConnectWise for the entry before retrying to avoid a duplicate: ${errorMessage(postError)}\n\n${warning}`,
         },
       ],
       isError: true,

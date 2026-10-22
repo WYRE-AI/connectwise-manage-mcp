@@ -479,7 +479,7 @@ describe("cw_create_time_entry ticket auto-email guard (WYREAI-495)", () => {
     const result = toolResult(body);
     expect(result.isError).toBe(true);
     expect(result.text).toContain("timeEntry object is invalid");
-    expect(result.text).toMatch(/^Time entry not created: /);
+    expect(result.text).toMatch(/^Time entry creation failed or could not be confirmed; check ConnectWise for the entry before retrying/);
     expect(result.text).toContain("WARNING: ticket 42 automaticEmailContactFlag left false; turn it back on with cw_update_ticket");
     expect(result.text).toContain("You do not have permission to edit tickets");
     const logged = errorLog.mock.calls
@@ -681,14 +681,14 @@ describe("restoring the ticket flags after the create (WYREAI-495)", () => {
     errorLog.mockRestore();
   });
 
-  it("returns an error saying the entry was not created when both the create and every restore fail", async () => {
+  it("returns an error saying creation failed or could not be confirmed when both the create and every restore fail", async () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     const { client } = flakyRestoreClient(99, { postFails: true });
 
     const result = await createTimeEntryWithEmailGuard(client, baseEntry, NO_WAIT);
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/^Time entry not created: ConnectWise API POST \/time\/entries returned 400/);
+    expect(result.content[0].text).toMatch(/^Time entry creation failed or could not be confirmed; check ConnectWise for the entry before retrying to avoid a duplicate: ConnectWise API POST \/time\/entries returned 400/);
     expect(result.content[0].text).toContain("automaticEmailContactFlag left false");
     expect(restoreLogLines(errorLog)[0]).toMatchObject({ timeEntryCreated: false });
     expect(restoreLogLines(errorLog)[0]).not.toHaveProperty("timeEntryId");
