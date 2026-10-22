@@ -156,12 +156,100 @@ function setTicketFlags(client: TimeEntryClient, path: string, flags: TicketEmai
   );
 }
 
-function leftOffWarning(ticketId: number, flags: TicketEmailFlag[], restoreHint: string, err: unknown): string {
+function leftOffWarning(
+  ticketId: number,
+  flags: TicketEmailFlag[],
+  restoreHint: string,
+  err: unknown,
+  attempts: number,
+): string {
   const lines = flags.map(
     (flag) => `WARNING: ticket ${ticketId} ${flag} left false; turn it back on with ${restoreHint}`,
   );
-  lines.push(`Restoring the ticket's Automatic Email flags failed: ${errorMessage(err)}`);
+  lines.push(
+    `Restoring the ticket's Automatic Email flags failed after ${attempts} attempt${attempts === 1 ? "" : "s"}: ${errorMessage(err)}`,
+  );
   return lines.join("\n");
+}
+
+/** Total tries at turning the ticket flags back on (first try plus retries). */
+export const RESTORE_ATTEMPTS = 3;
+/** Wait before each retry of the restore, in ms. The last value repeats if attempts outnumber it. */
+export const RESTORE_BACKOFF_MS: readonly number[] = [200, 600];
+
+export interface EmailGuardOptions {
+  /** Overrides RESTORE_BACKOFF_MS (tests pass [0, 0]). */
+  restoreBackoffMs?: readonly number[];
+}
+
+type RestoreOutcome = { ok: true; attempts: number } | { ok: false; attempts: number; error: unknown };
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Turns the ticket flags back on, retrying a failed PATCH up to
+ * RESTORE_ATTEMPTS times in total with a short backoff. A transient
+ * ConnectWise error (429, 5xx, a dropped socket) then does not leave the
+ * ticket's automatic email silently off. Runs inside the ticket lock.
+ */
+async function restoreTicketFlags(
+  client: TimeEntryClient,
+  path: string,
+  flags: TicketEmailFlag[],
+  backoffMs: readonly number[],
+): Promise<RestoreOutcome> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= RESTORE_ATTEMPTS; attempt++) {
+    try {
+      await setTicketFlags(client, path, flags, true);
+      return { ok: true, attempts: attempt };
+    } catch (err: unknown) {
+      lastError = err;
+      if (attempt < RESTORE_ATTEMPTS) {
+        const wait = backoffMs[Math.min(attempt - 1, backoffMs.length - 1)] ?? 0;
+        if (wait > 0) await sleep(wait);
+      }
+    }
+  }
+  return { ok: false, attempts: RESTORE_ATTEMPTS, error: lastError };
+}
+
+/**
+ * One error-level JSON line on stderr when the restore gives up, so an
+ * operator can find the ticket and turn the flags back on. It carries the
+ * non-secret connection identity (API base URL + company id), never keys.
+ * The error text has already been through safe-error (status, reference id,
+ * redacted 4xx detail).
+ */
+function logRestoreFailure(details: {
+  client: TimeEntryClient;
+  ticketId: number;
+  ticketPath: string;
+  flagsLeftOff: TicketEmailFlag[];
+  timeEntryCreated: boolean;
+  timeEntryId?: unknown;
+  attempts: number;
+  error: unknown;
+}): void {
+  const line: Record<string, unknown> = {
+    level: "error",
+    event: "cw_time_entry_auto_email_restore_failed",
+    ticketId: details.ticketId,
+    ticketPath: details.ticketPath,
+    flagsLeftOff: details.flagsLeftOff,
+    timeEntryCreated: details.timeEntryCreated,
+    attempts: details.attempts,
+    error: errorMessage(details.error),
+  };
+  if (details.timeEntryId !== undefined) line.timeEntryId = details.timeEntryId;
+  if (typeof details.client.connectionKey === "string" && details.client.connectionKey) {
+    line.connection = details.client.connectionKey;
+  }
+  console.error(JSON.stringify(line));
+}
+
+function entryId(entry: unknown): unknown {
+  return entry && typeof entry === "object" ? (entry as Record<string, unknown>).id : undefined;
 }
 
 /** Warns where Manage stored an entry email flag other than the one requested. */
@@ -181,12 +269,58 @@ function flagMismatchWarnings(entry: unknown, body: Record<string, unknown>): st
   return warnings;
 }
 
-function createdResult(entry: unknown, body: Record<string, unknown>, restoreWarning?: string): TimeEntryToolResult {
+function createdResult(entry: unknown, body: Record<string, unknown>): TimeEntryToolResult {
   const content: TimeEntryToolResult["content"] = [{ type: "text", text: JSON.stringify(entry, null, 2) }];
-  if (restoreWarning) content.push({ type: "text", text: restoreWarning });
   const mismatches = flagMismatchWarnings(entry, body);
   if (mismatches.length > 0) content.push({ type: "text", text: mismatches.join("\n") });
-  return restoreWarning ? { content, isError: true } : { content };
+  return { content };
+}
+
+/**
+ * The entry was created but the ticket flags could not be turned back on.
+ * Not isError: the create succeeded, and an error result invites the caller
+ * to retry and log the time twice. The first block is a prominent warning
+ * that the entry exists and which flags are still off; the last is a JSON
+ * status block (timeEntryCreated, timeEntryId, autoEmailRestoreFailed,
+ * flagsLeftOff, restoreWith) for programmatic callers.
+ */
+function createdWithRestoreFailure(
+  entry: unknown,
+  body: Record<string, unknown>,
+  ticketId: number,
+  flagsLeftOff: TicketEmailFlag[],
+  restoreHint: string,
+  attempts: number,
+  err: unknown,
+): TimeEntryToolResult {
+  const id = entryId(entry);
+  const headline =
+    `WARNING: time entry ${String(id)} WAS created on ticket ${ticketId}. Do not create it again. ` +
+    `Its Automatic Email flags could not be turned back on, so ticket ${ticketId} will not auto-email ` +
+    `these recipients until they are restored: ${flagsLeftOff.join(", ")}.`;
+  const content: TimeEntryToolResult["content"] = [
+    { type: "text", text: `${headline}\n${leftOffWarning(ticketId, flagsLeftOff, restoreHint, err, attempts)}` },
+    { type: "text", text: JSON.stringify(entry, null, 2) },
+  ];
+  const mismatches = flagMismatchWarnings(entry, body);
+  if (mismatches.length > 0) content.push({ type: "text", text: mismatches.join("\n") });
+  content.push({
+    type: "text",
+    text: JSON.stringify(
+      {
+        timeEntryCreated: true,
+        timeEntryId: id ?? null,
+        autoEmailRestoreFailed: true,
+        ticketId,
+        flagsLeftOff,
+        restoreAttempts: attempts,
+        restoreWith: restoreHint,
+      },
+      null,
+      2,
+    ),
+  });
+  return { content };
 }
 
 /**
@@ -197,8 +331,12 @@ function createdResult(entry: unknown, body: Record<string, unknown>, restoreWar
  * requested false, create the entry, then turn the flags back on.
  *
  * Fails closed: if the ticket cannot be read or the flags cannot be turned
- * off, the entry is not created. If the restore fails, the entry is returned
- * with isError and a warning naming each flag left off.
+ * off, the entry is not created. The restore is retried (RESTORE_ATTEMPTS
+ * tries with RESTORE_BACKOFF_MS between them). If every try fails after the
+ * entry was created, the result is not isError (the entry exists and must not
+ * be created again): it leads with a warning naming the entry and each flag
+ * left off, ends with a JSON status block (autoEmailRestoreFailed: true), and
+ * an error-level line is logged.
  *
  * The read/toggle/post/restore sequence is serialized per ticket (keyed by the
  * client's connectionKey plus the ticket path) within this process only; see
@@ -207,6 +345,7 @@ function createdResult(entry: unknown, body: Record<string, unknown>, restoreWar
 export async function createTimeEntryWithEmailGuard(
   client: TimeEntryClient,
   input: CreateTimeEntryToolInput,
+  options: EmailGuardOptions = {},
 ): Promise<TimeEntryToolResult> {
   const body = buildCreateTimeEntryBody(input);
   const target = input.suppressTicketAutoEmail === false ? undefined : ticketTarget(input);
@@ -230,7 +369,7 @@ export async function createTimeEntryWithEmailGuard(
   }
 
   return withTicketLock(`${clientLockKey(client)}|${target.path}`, () =>
-    guardedCreate(client, body, target, ticketId, wantedOff),
+    guardedCreate(client, body, target, ticketId, wantedOff, options.restoreBackoffMs ?? RESTORE_BACKOFF_MS),
   );
 }
 
@@ -241,6 +380,7 @@ async function guardedCreate(
   target: { path: string; restoreHint: string },
   ticketId: number,
   wantedOff: readonly { entry: EntryEmailFlag; ticket: TicketEmailFlag }[],
+  backoffMs: readonly number[],
 ): Promise<TimeEntryToolResult> {
   let ticket: Record<string, unknown>;
   try {
@@ -273,10 +413,18 @@ async function guardedCreate(
         `Time entry not created: ConnectWise would have emailed the recipients because ticket ${ticketId} has ` +
         `${toggled.join(", ")} on, and turning ${toggled.length === 1 ? "it" : "them"} off failed. ${errorMessage(err)}`;
       // The PATCH may have applied partway; put the flags back.
-      try {
-        await setTicketFlags(client, target.path, toggled, true);
-      } catch (restoreErr: unknown) {
-        text += `\n\n${leftOffWarning(ticketId, toggled, target.restoreHint, restoreErr)}`;
+      const restore = await restoreTicketFlags(client, target.path, toggled, backoffMs);
+      if (!restore.ok) {
+        logRestoreFailure({
+          client,
+          ticketId,
+          ticketPath: target.path,
+          flagsLeftOff: toggled,
+          timeEntryCreated: false,
+          attempts: restore.attempts,
+          error: restore.error,
+        });
+        text += `\n\n${leftOffWarning(ticketId, toggled, target.restoreHint, restore.error, restore.attempts)}`;
       }
       return { content: [{ type: "text", text }], isError: true };
     }
@@ -285,8 +433,7 @@ async function guardedCreate(
   let entry: unknown;
   let postError: unknown;
   let posted = false;
-  let restoreError: unknown;
-  let restoreFailed = false;
+  let restore: RestoreOutcome | undefined;
   try {
     entry = await client.post("/time/entries", body);
     posted = true;
@@ -294,27 +441,38 @@ async function guardedCreate(
     postError = err;
   } finally {
     if (toggled.length > 0) {
-      try {
-        await setTicketFlags(client, target.path, toggled, true);
-      } catch (err: unknown) {
-        restoreFailed = true;
-        restoreError = err;
-      }
+      restore = await restoreTicketFlags(client, target.path, toggled, backoffMs);
     }
   }
 
-  const restoreWarning = restoreFailed
-    ? leftOffWarning(ticketId, toggled, target.restoreHint, restoreError)
-    : undefined;
-
-  if (!posted) {
-    if (!restoreWarning) return toolError(postError);
+  if (restore && !restore.ok) {
+    logRestoreFailure({
+      client,
+      ticketId,
+      ticketPath: target.path,
+      flagsLeftOff: toggled,
+      timeEntryCreated: posted,
+      timeEntryId: posted ? entryId(entry) : undefined,
+      attempts: restore.attempts,
+      error: restore.error,
+    });
+    if (posted) {
+      return createdWithRestoreFailure(entry, body, ticketId, toggled, target.restoreHint, restore.attempts, restore.error);
+    }
+    const warning = leftOffWarning(ticketId, toggled, target.restoreHint, restore.error, restore.attempts);
     return {
-      content: [{ type: "text", text: `${errorMessage(postError)}\n\n${restoreWarning}` }],
+      content: [
+        {
+          type: "text",
+          text: `Time entry not created: ${errorMessage(postError)}\n\n${warning}`,
+        },
+      ],
       isError: true,
     };
   }
-  return createdResult(entry, body, restoreWarning);
+
+  if (!posted) return toolError(postError);
+  return createdResult(entry, body);
 }
 
 export function registerTimeEntryTools(server: McpServer, client: CwManageClient) {
@@ -352,7 +510,7 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
 
   server.tool(
     "cw_create_time_entry",
-    "Create a new time entry. ConnectWise ignores emailContactFlag, emailResourceFlag and emailCcFlag on create and copies the ticket's automaticEmailContactFlag, automaticEmailResourceFlag and automaticEmailCcFlag onto the new entry, so sending false alone does not stop the email. For ServiceTicket and ProjectTicket, this tool turns off each ticket flag whose entry flag is false (the default) for the instant of the create, then turns it back on. If it cannot read or turn off a flag, the entry is not created. If the restore fails, the entry is returned as an error with a warning naming the flags left off. Concurrent calls on the same ticket are serialized within this server process only, not across replicas or separate Worker isolates. During that brief window other entries on the ticket (from other processes or users) miss auto-email, and the ticket PATCH updates its lastUpdated. suppressTicketAutoEmail=false skips the toggle and uses ConnectWise's default behaviour. ChargeCode and Activity entries make no ticket calls. emailCc is sent only when you provide it.",
+    "Create a new time entry. ConnectWise ignores emailContactFlag, emailResourceFlag and emailCcFlag on create and copies the ticket's automaticEmailContactFlag, automaticEmailResourceFlag and automaticEmailCcFlag onto the new entry, so sending false alone does not stop the email. For ServiceTicket and ProjectTicket, this tool turns off each ticket flag whose entry flag is false (the default) for the instant of the create, then turns it back on. If it cannot read or turn off a flag, the entry is not created. Turning the flags back on is tried up to 3 times. If every try fails, the entry WAS created and the result is not an error: it starts with a WARNING naming the time entry id and each ticket flag left off, and ends with a JSON block with timeEntryCreated true, timeEntryId, autoEmailRestoreFailed true and flagsLeftOff. Do not create the entry again; turn the flags back on with cw_update_ticket (or PATCH the project ticket). Concurrent calls on the same ticket are serialized within this server process only, not across replicas or separate Worker isolates, so run this server as a single replica if concurrent creates on one ticket are possible. During that brief window other entries on the ticket (from other processes or users) miss auto-email, and the ticket PATCH updates its lastUpdated. suppressTicketAutoEmail=false skips the toggle and uses ConnectWise's default behaviour. ChargeCode and Activity entries make no ticket calls. emailCc is sent only when you provide it.",
     {
       chargeToType: z.enum(["ServiceTicket", "ProjectTicket", "ChargeCode", "Activity"]).describe("What to charge the time to"),
       chargeToId: z.number().describe("ID of the ticket, charge code, or activity"),

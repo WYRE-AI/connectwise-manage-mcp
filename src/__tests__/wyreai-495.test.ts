@@ -268,7 +268,8 @@ describe("cw_create_time_entry ticket auto-email guard (WYREAI-495)", () => {
     expect(calls.some((call) => call.method === "PATCH")).toBe(false);
   });
 
-  it("returns the entry with isError and a warning when the restore fails", async () => {
+  it("returns the entry as a success with a warning, a status block and an error log when every restore attempt fails", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     const calls = routedFetch({
       "GET /service/tickets/42": { automaticEmailContactFlag: true, automaticEmailResourceFlag: false, automaticEmailCcFlag: true },
       "PATCH /service/tickets/42": patchSequence(200, 403),
@@ -276,17 +277,48 @@ describe("cw_create_time_entry ticket auto-email guard (WYREAI-495)", () => {
     });
 
     const body = await mcp("tools/call", { name: "cw_create_time_entry", arguments: baseEntry });
-    expect(toolResult(body).isError).toBe(true);
+    expect(toolResult(body).isError).not.toBe(true);
     const texts = allText(body);
-    expect(JSON.parse(texts[0])).toEqual(createdEntry);
-    expect(texts[1]).toContain(
+    expect(texts[0]).toContain("WARNING: time entry 6188 WAS created on ticket 42. Do not create it again.");
+    expect(texts[0]).toContain(
       "WARNING: ticket 42 automaticEmailContactFlag left false; turn it back on with cw_update_ticket",
     );
-    expect(texts[1]).toContain(
+    expect(texts[0]).toContain(
       "WARNING: ticket 42 automaticEmailCcFlag left false; turn it back on with cw_update_ticket",
     );
-    expect(texts[1]).toContain("You do not have permission to edit tickets");
+    expect(texts[0]).toContain("failed after 3 attempts");
+    expect(texts[0]).toContain("You do not have permission to edit tickets");
+    expect(JSON.parse(texts[1])).toEqual(createdEntry);
+    expect(JSON.parse(texts[texts.length - 1])).toEqual({
+      timeEntryCreated: true,
+      timeEntryId: 6188,
+      autoEmailRestoreFailed: true,
+      ticketId: 42,
+      flagsLeftOff: ["automaticEmailContactFlag", "automaticEmailCcFlag"],
+      restoreAttempts: 3,
+      restoreWith: "cw_update_ticket",
+    });
     expect(calls.filter((call) => call.method === "POST")).toHaveLength(1);
+    // One turn-off plus three restore attempts.
+    expect(calls.filter((call) => call.method === "PATCH")).toHaveLength(4);
+
+    const restoreLogs = errorLog.mock.calls
+      .map((args) => String(args[0]))
+      .filter((line) => line.includes("cw_time_entry_auto_email_restore_failed"));
+    expect(restoreLogs).toHaveLength(1);
+    const logged = JSON.parse(restoreLogs[0]) as Record<string, unknown>;
+    expect(logged).toMatchObject({
+      level: "error",
+      ticketId: 42,
+      ticketPath: "/service/tickets/42",
+      flagsLeftOff: ["automaticEmailContactFlag", "automaticEmailCcFlag"],
+      timeEntryCreated: true,
+      timeEntryId: 6188,
+      attempts: 3,
+    });
+    // No gateway credential header values reach the log.
+    for (const secret of ["priv", "client-guid"]) expect(restoreLogs[0]).not.toContain(secret);
+    errorLog.mockRestore();
   });
 
   it("does not create the entry when turning the ticket flag off fails", async () => {
@@ -349,6 +381,7 @@ describe("cw_create_time_entry ticket auto-email guard (WYREAI-495)", () => {
   });
 
   it("names PATCH /project/tickets/{id} when a project ticket restore fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     routedFetch({
       "GET /project/tickets/50": { automaticEmailContactFlag: true, automaticEmailResourceFlag: false, automaticEmailCcFlag: false },
       "PATCH /project/tickets/50": patchSequence(200, 500),
@@ -359,8 +392,8 @@ describe("cw_create_time_entry ticket auto-email guard (WYREAI-495)", () => {
       name: "cw_create_time_entry",
       arguments: { ...baseEntry, chargeToType: "ProjectTicket", chargeToId: 50 },
     });
-    expect(toolResult(body).isError).toBe(true);
-    expect(allText(body)[1]).toContain(
+    expect(toolResult(body).isError).not.toBe(true);
+    expect(allText(body)[0]).toContain(
       "WARNING: ticket 50 automaticEmailContactFlag left false; turn it back on with PATCH /project/tickets/50",
     );
   });
@@ -435,6 +468,7 @@ describe("cw_create_time_entry ticket auto-email guard (WYREAI-495)", () => {
   });
 
   it("reports both failures when the create and the restore fail", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     routedFetch({
       "GET /service/tickets/42": { automaticEmailContactFlag: true, automaticEmailResourceFlag: false, automaticEmailCcFlag: false },
       "PATCH /service/tickets/42": patchSequence(200, 403),
@@ -445,8 +479,16 @@ describe("cw_create_time_entry ticket auto-email guard (WYREAI-495)", () => {
     const result = toolResult(body);
     expect(result.isError).toBe(true);
     expect(result.text).toContain("timeEntry object is invalid");
+    expect(result.text).toMatch(/^Time entry not created: /);
     expect(result.text).toContain("WARNING: ticket 42 automaticEmailContactFlag left false; turn it back on with cw_update_ticket");
     expect(result.text).toContain("You do not have permission to edit tickets");
+    const logged = errorLog.mock.calls
+      .map((args) => String(args[0]))
+      .filter((line) => line.includes("cw_time_entry_auto_email_restore_failed"))
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ timeEntryCreated: false, ticketId: 42, attempts: 3 });
+    expect(logged[0]).not.toHaveProperty("timeEntryId");
   });
 });
 
@@ -496,6 +538,161 @@ describe("createTimeEntryWithEmailGuard (WYREAI-495)", () => {
       emailCcFlag: true,
     });
     expect(log).toEqual(["POST /time/entries"]);
+  });
+});
+
+describe("restoring the ticket flags after the create (WYREAI-495)", () => {
+  const NO_WAIT = { restoreBackoffMs: [0, 0] } as const;
+
+  /** Ticket with the contact flag on; restore PATCHes (value true) fail `restoreFailures` times. */
+  function flakyRestoreClient(restoreFailures: number, opts: { postFails?: boolean; offFails?: boolean } = {}) {
+    const log: string[] = [];
+    let failuresLeft = restoreFailures;
+    const client: TimeEntryClient = {
+      connectionKey: "https://cw.example/v4_6_release/apis/3.0|acme",
+      get: vi.fn(async () => ({
+        automaticEmailContactFlag: true,
+        automaticEmailResourceFlag: false,
+        automaticEmailCcFlag: false,
+      })) as unknown as TimeEntryClient["get"],
+      patch: vi.fn(async (path: string, ops: { path: string; value: boolean }[]) => {
+        const value = ops[0].value;
+        log.push(`PATCH ${path} ${value}`);
+        if (!value && opts.offFails) throw new Error("ConnectWise API PATCH /service/tickets/42 returned 500 (reference off)");
+        if (value && failuresLeft > 0) {
+          failuresLeft--;
+          throw new Error("ConnectWise API PATCH /service/tickets/42 returned 503 (reference r1)");
+        }
+        return {};
+      }) as unknown as TimeEntryClient["patch"],
+      post: vi.fn(async () => {
+        log.push("POST /time/entries");
+        if (opts.postFails) throw new Error("ConnectWise API POST /time/entries returned 400 (reference p1)");
+        return { id: 777, emailContactFlag: false, emailResourceFlag: false, emailCcFlag: false };
+      }) as unknown as TimeEntryClient["post"],
+    };
+    return { client, log };
+  }
+
+  function restoreLogLines(spy: { mock: { calls: unknown[][] } }): Record<string, unknown>[] {
+    return spy.mock.calls
+      .map((args) => String(args[0]))
+      .filter((line) => line.includes("cw_time_entry_auto_email_restore_failed"))
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  it("retries a failed restore and returns plain success when the second attempt works", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client, log } = flakyRestoreClient(1);
+
+    const result = await createTimeEntryWithEmailGuard(client, baseEntry, NO_WAIT);
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toHaveLength(1);
+    expect(JSON.parse(result.content[0].text).id).toBe(777);
+    expect(log).toEqual([
+      "PATCH /service/tickets/42 false",
+      "POST /time/entries",
+      "PATCH /service/tickets/42 true",
+      "PATCH /service/tickets/42 true",
+    ]);
+    expect(restoreLogLines(errorLog)).toHaveLength(0);
+    errorLog.mockRestore();
+  });
+
+  it("gives up after 3 restore attempts: success with the entry id, a warning, a status block and one error log", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client, log } = flakyRestoreClient(99);
+
+    const result = await createTimeEntryWithEmailGuard(client, baseEntry, NO_WAIT);
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toMatch(/^WARNING: time entry 777 WAS created on ticket 42\. Do not create it again\./);
+    expect(result.content[0].text).toContain("automaticEmailContactFlag");
+    expect(result.content[0].text).toContain("failed after 3 attempts");
+    expect(JSON.parse(result.content[1].text).id).toBe(777);
+    const status = JSON.parse(result.content[result.content.length - 1].text) as Record<string, unknown>;
+    expect(status).toMatchObject({
+      timeEntryCreated: true,
+      timeEntryId: 777,
+      autoEmailRestoreFailed: true,
+      flagsLeftOff: ["automaticEmailContactFlag"],
+      restoreAttempts: 3,
+    });
+    expect(log.filter((line) => line === "PATCH /service/tickets/42 true")).toHaveLength(3);
+    expect(log.filter((line) => line === "POST /time/entries")).toHaveLength(1);
+
+    const logged = restoreLogLines(errorLog);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toEqual({
+      level: "error",
+      event: "cw_time_entry_auto_email_restore_failed",
+      ticketId: 42,
+      ticketPath: "/service/tickets/42",
+      flagsLeftOff: ["automaticEmailContactFlag"],
+      timeEntryCreated: true,
+      timeEntryId: 777,
+      attempts: 3,
+      error: "ConnectWise API PATCH /service/tickets/42 returned 503 (reference r1)",
+      connection: "https://cw.example/v4_6_release/apis/3.0|acme",
+    });
+    errorLog.mockRestore();
+  });
+
+  it("waits between restore attempts using the backoff schedule", async () => {
+    vi.useFakeTimers();
+    try {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { client, log } = flakyRestoreClient(2);
+      const pending = createTimeEntryWithEmailGuard(client, baseEntry, { restoreBackoffMs: [100, 300] });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(log.filter((line) => line.endsWith("true"))).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(log.filter((line) => line.endsWith("true"))).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(log.filter((line) => line.endsWith("true"))).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(300);
+      const result = await pending;
+      expect(log.filter((line) => line.endsWith("true"))).toHaveLength(3);
+      expect(result.isError).toBeUndefined();
+      expect(result.content).toHaveLength(1);
+      expect(restoreLogLines(errorLog)).toHaveLength(0);
+      errorLog.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries the put-back when turning the flags off fails, and logs if it never works", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client, log } = flakyRestoreClient(99, { offFails: true });
+
+    const result = await createTimeEntryWithEmailGuard(client, baseEntry, NO_WAIT);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/^Time entry not created/);
+    expect(result.content[0].text).toContain("failed after 3 attempts");
+    expect(log).not.toContain("POST /time/entries");
+    expect(log.filter((line) => line === "PATCH /service/tickets/42 true")).toHaveLength(3);
+    const logged = restoreLogLines(errorLog);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ timeEntryCreated: false, flagsLeftOff: ["automaticEmailContactFlag"] });
+    errorLog.mockRestore();
+  });
+
+  it("returns an error saying the entry was not created when both the create and every restore fail", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client } = flakyRestoreClient(99, { postFails: true });
+
+    const result = await createTimeEntryWithEmailGuard(client, baseEntry, NO_WAIT);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/^Time entry not created: ConnectWise API POST \/time\/entries returned 400/);
+    expect(result.content[0].text).toContain("automaticEmailContactFlag left false");
+    expect(restoreLogLines(errorLog)[0]).toMatchObject({ timeEntryCreated: false });
+    expect(restoreLogLines(errorLog)[0]).not.toHaveProperty("timeEntryId");
+    errorLog.mockRestore();
   });
 });
 
