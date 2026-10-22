@@ -65,6 +65,23 @@ export type TimeEntryClient = Pick<CwManageClient, "get" | "post" | "patch"> & {
   readonly connectionKey?: string;
 };
 
+/** Tail promise of each held or queued per-ticket lock; see withTicketLock. */
+const ticketLocks = new Map<string, Promise<void>>();
+
+/** Fallback lock identity for a client with no connectionKey (one id per client object). */
+const anonymousClientKeys = new WeakMap<object, string>();
+let anonymousClientCounter = 0;
+
+function clientLockKey(client: TimeEntryClient): string {
+  if (typeof client.connectionKey === "string" && client.connectionKey) return client.connectionKey;
+  let key = anonymousClientKeys.get(client);
+  if (!key) {
+    key = `client#${++anonymousClientCounter}`;
+    anonymousClientKeys.set(client, key);
+  }
+  return key;
+}
+
 /**
  * Per-ticket async lock (promise-chain mutex), in-process only.
  *
@@ -83,23 +100,11 @@ export type TimeEntryClient = Pick<CwManageClient, "get" | "post" | "patch"> & {
  * Each waiter chains on the previous tail with its rejection swallowed, so one
  * failure never poisons later callers; the map entry is deleted once the last
  * holder finishes, so idle tickets do not leak.
+ *
+ * @param key Lock key: the client's connection key plus the ticket path.
+ * @param fn The read/toggle/post/restore sequence to run while holding the lock.
+ * @returns Whatever fn resolves to; fn's rejection propagates to this caller only.
  */
-const ticketLocks = new Map<string, Promise<void>>();
-
-/** Fallback lock identity for a client with no connectionKey (one id per client object). */
-const anonymousClientKeys = new WeakMap<object, string>();
-let anonymousClientCounter = 0;
-
-function clientLockKey(client: TimeEntryClient): string {
-  if (typeof client.connectionKey === "string" && client.connectionKey) return client.connectionKey;
-  let key = anonymousClientKeys.get(client);
-  if (!key) {
-    key = `client#${++anonymousClientCounter}`;
-    anonymousClientKeys.set(client, key);
-  }
-  return key;
-}
-
 export async function withTicketLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = ticketLocks.get(key) ?? Promise.resolve();
   const run = prev.then(fn);
