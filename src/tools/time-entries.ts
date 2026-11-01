@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { describeMemberPolicy, memberOverrideNotice, resolveMemberId } from "../member-policy.js";
 
 export interface CreateTimeEntryInput {
   chargeToType: "ServiceTicket" | "ProjectTicket" | "ChargeCode" | "Activity";
@@ -510,11 +511,16 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
 
   server.tool(
     "cw_create_time_entry",
-    "Create a new time entry. ConnectWise ignores emailContactFlag, emailResourceFlag and emailCcFlag on create and copies the ticket's automaticEmailContactFlag, automaticEmailResourceFlag and automaticEmailCcFlag onto the new entry, so sending false alone does not stop the email. For ServiceTicket and ProjectTicket, this tool turns off each ticket flag whose entry flag is false (the default) for the instant of the create, then turns it back on. If it cannot read or turn off a flag, the entry is not created. Turning the flags back on is tried up to 3 times. If every try fails, the entry WAS created and the result is not an error: it starts with a WARNING naming the time entry id and each ticket flag left off, and ends with a JSON block with timeEntryCreated true, timeEntryId, autoEmailRestoreFailed true and flagsLeftOff. Do not create the entry again; turn the flags back on with cw_update_ticket (or PATCH the project ticket). Concurrent calls on the same ticket are serialized within this server process only, not across replicas or separate Worker isolates, so run this server as a single replica if concurrent creates on one ticket are possible. During that brief window other entries on the ticket (from other processes or users) miss auto-email, and the ticket PATCH updates its lastUpdated. suppressTicketAutoEmail=false skips the toggle and uses ConnectWise's default behaviour. ChargeCode and Activity entries make no ticket calls. emailCc is sent only when you provide it.",
+    "Create a new time entry. ConnectWise ignores emailContactFlag, emailResourceFlag and emailCcFlag on create and copies the ticket's automaticEmailContactFlag, automaticEmailResourceFlag and automaticEmailCcFlag onto the new entry, so sending false alone does not stop the email. For ServiceTicket and ProjectTicket, this tool turns off each ticket flag whose entry flag is false (the default) for the instant of the create, then turns it back on. If it cannot read or turn off a flag, the entry is not created. Turning the flags back on is tried up to 3 times. If every try fails, the entry WAS created and the result is not an error: it starts with a WARNING naming the time entry id and each ticket flag left off, and ends with a JSON block with timeEntryCreated true, timeEntryId, autoEmailRestoreFailed true and flagsLeftOff. Do not create the entry again; turn the flags back on with cw_update_ticket (or PATCH the project ticket). Concurrent calls on the same ticket are serialized within this server process only, not across replicas or separate Worker isolates, so run this server as a single replica if concurrent creates on one ticket are possible. During that brief window other entries on the ticket (from other processes or users) miss auto-email, and the ticket PATCH updates its lastUpdated. suppressTicketAutoEmail=false skips the toggle and uses ConnectWise's default behaviour. ChargeCode and Activity entries make no ticket calls. emailCc is sent only when you provide it. Member attribution policy: " + describeMemberPolicy(client.memberPolicy) + ".",
     {
       chargeToType: z.enum(["ServiceTicket", "ProjectTicket", "ChargeCode", "Activity"]).describe("What to charge the time to"),
       chargeToId: z.number().describe("ID of the ticket, charge code, or activity"),
-      memberId: z.number().describe("Member ID for the time entry"),
+      memberId: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Member ID for the time entry. Required unless the server has CW_MANAGE_MEMBER_ID. Ignored when the server forces a member id."),
       timeStart: z.string().describe("Start time (ISO 8601)"),
       timeEnd: z.string().optional().describe("End time (ISO 8601)"),
       actualHours: z.number().optional().describe("Actual hours worked (alternative to timeEnd)"),
@@ -543,7 +549,21 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
         .optional()
         .describe("Default true. For service and project tickets, turn off the ticket's automaticEmail* flags matching false entry flags for the instant of the create, then restore them. false makes no ticket calls, so ConnectWise emails whoever the ticket flags say."),
     },
-    async (input) => createTimeEntryWithEmailGuard(client, input),
+    async (input) => {
+      const { memberId, overrode } = resolveMemberId(client.memberPolicy, input.memberId);
+      if (memberId === undefined) {
+        return {
+          content: [{ type: "text" as const, text: "memberId is required: no memberId was passed and the server has no member id configured (CW_MANAGE_MEMBER_ID or X-CW-Member-Id)." }],
+          isError: true as const,
+        };
+      }
+      const result = await createTimeEntryWithEmailGuard(client, { ...input, memberId });
+      if (overrode) {
+        // Second, not first: a restore-failure result must still start with its WARNING and end with its JSON block.
+        result.content.splice(1, 0, { type: "text" as const, text: memberOverrideNotice(input.memberId, memberId) });
+      }
+      return result;
+    },
   );
 
   server.tool(
