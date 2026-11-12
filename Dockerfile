@@ -39,6 +39,9 @@ COPY --from=builder /app/node_modules ./node_modules
 # Prune dev dependencies
 RUN npm prune --omit=dev && npm cache clean --force
 
+# Remove the npm CLI bundled in the base image; the runtime only needs node
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 # Create logs directory
 RUN mkdir -p /app/logs && chown -R cwmanage:cwmanage /app
 
