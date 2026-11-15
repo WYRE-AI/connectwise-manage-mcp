@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { customFieldConditionsSchema } from "./custom-field-conditions.js";
 
 /**
  * Product Catalog tools (ConnectWise Procurement API).
@@ -16,16 +17,18 @@ export function registerCatalogTools(server: McpServer, client: CwManageClient) 
 
   server.tool(
     "cw_search_catalog_items",
-    "Search the ConnectWise product catalog. Use 'conditions' for CW query syntax (e.g. \"identifier like '%SKU-%'\" or \"manufacturer/id=5\").",
+    "Search the ConnectWise product catalog. Use 'conditions' for CW query syntax (e.g. \"identifier like '%SKU-%'\" or \"manufacturer/id=5\"). Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'identifier asc')"),
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/procurement/catalog", {
         conditions,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,

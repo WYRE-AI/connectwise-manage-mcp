@@ -1,20 +1,23 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { customFieldConditionsSchema } from "./custom-field-conditions.js";
 
 export function registerCompanyTools(server: McpServer, client: CwManageClient) {
   server.tool(
     "cw_search_companies",
-    "Search companies in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"name like '%Acme%'\").",
+    "Search companies in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"name like '%Example%'\"). Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/company/companies", {
         conditions,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
