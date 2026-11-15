@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { customFieldConditionsSchema } from "./custom-field-conditions.js";
 
 /**
  * Finance and procurement tools (ConnectWise Procurement + Sales APIs).
@@ -31,16 +32,18 @@ export function registerFinanceProcurementTools(
 
   server.tool(
     "cw_search_purchase_orders",
-    "Search purchase orders (the buy side) in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"closedFlag = false\", \"vendorCompany/name = 'Ingram'\", \"poDate > [2026-01-01T00:00:00Z]\").",
+    "Search purchase orders (the buy side) in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"closedFlag = false\", \"vendorCompany/name = 'Ingram'\", \"poDate > [2026-01-01T00:00:00Z]\"). Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'poDate desc')"),
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/procurement/purchaseorders", {
         conditions,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
@@ -63,19 +66,21 @@ export function registerFinanceProcurementTools(
 
   server.tool(
     "cw_get_purchase_order_items",
-    "Get the line items on a specific purchase order, including unit cost, extended cost, quantity received, and receipt status.",
+    "Get the line items on a specific purchase order, including unit cost, extended cost, quantity received, and receipt status. Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       purchaseOrderId: z.number().describe("Purchase order ID"),
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
-    async ({ purchaseOrderId, conditions, page, pageSize, orderBy }) => {
+    async ({ purchaseOrderId, conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get(
         `/procurement/purchaseorders/${purchaseOrderId}/lineitems`,
         {
           conditions,
+          customFieldConditions,
           page: page ?? 1,
           pageSize: pageSize ?? 25,
           orderBy,
@@ -95,16 +100,18 @@ export function registerFinanceProcurementTools(
 
   server.tool(
     "cw_search_procurement_products",
-    "Search procurement product items — catalog SKUs placed on a ticket, project, sales order or opportunity, with their own price, cost and margin. For the catalog SKU definitions themselves use cw_search_catalog_items instead. Use 'conditions' for CW query syntax (e.g. \"company/id = 42\", \"invoice/id = 1001\").",
+    "Search procurement product items — catalog SKUs placed on a ticket, project, sales order or opportunity, with their own price, cost and margin. For the catalog SKU definitions themselves use cw_search_catalog_items instead. Use 'conditions' for CW query syntax (e.g. \"company/id = 42\", \"invoice/id = 1001\"). Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'id desc')"),
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/procurement/products", {
         conditions,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
@@ -131,16 +138,18 @@ export function registerFinanceProcurementTools(
 
   server.tool(
     "cw_search_sales_orders",
-    "Search sales orders (the sell side) in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"status/name = 'Open'\", \"company/name = 'Acme'\"). For purchase orders use cw_search_purchase_orders instead.",
+    "Search sales orders (the sell side) in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"status/name = 'Open'\", \"company/name = 'Acme'\"). For purchase orders use cw_search_purchase_orders instead. Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'id desc')"),
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/sales/orders", {
         conditions,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
@@ -163,21 +172,23 @@ export function registerFinanceProcurementTools(
 
   server.tool(
     "cw_get_sales_order_products",
-    "Get the procurement product items on a specific sales order. Always scoped to the given order; any extra 'conditions' are ANDed with that scope.",
+    "Get the procurement product items on a specific sales order. Always scoped to the given order; any extra 'conditions' are ANDed with that scope. Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       salesOrderId: z.number().describe("Sales order ID"),
       conditions: z
         .string()
         .optional()
         .describe("Additional ConnectWise conditions, ANDed with the sales order filter"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
-    async ({ salesOrderId, conditions, page, pageSize, orderBy }) => {
+    async ({ salesOrderId, conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const scope = `salesOrder/id=${salesOrderId}`;
       const result = await client.get("/procurement/products", {
         conditions: conditions ? `${scope} and (${conditions})` : scope,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
