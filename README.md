@@ -38,6 +38,8 @@ For deploying to **Azure Container Apps** with Entra ID OAuth 2.1, see [AZURE_AC
 | `CW_MANAGE_CLIENT_ID` | For stdio and `AUTH_MODE=env` | Client ID from [ConnectWise Developer Portal](https://developer.connectwise.com/) |
 | `CW_MANAGE_URL` | No | API base URL (see below) |
 | `CW_MANAGE_REJECT_UNAUTHORIZED` | No | Set to `false` for self-signed certs (default: `true`) |
+| `CW_MANAGE_MEMBER_ID` | No | Member id to attribute notes and time entries to (see below) |
+| `CW_MANAGE_FORCE_MEMBER_ID` | No | `true` to ignore any caller-supplied `memberId` and always use `CW_MANAGE_MEMBER_ID` (default: `false`) |
 | `MCP_TRANSPORT` | No | `stdio` (default) or `http` |
 | `MCP_HTTP_PORT` | No | HTTP port (default: `8080`) |
 | `MCP_HTTP_HOST` | No | Bind address when `MCP_TRANSPORT=http`. Defaults to `127.0.0.1`. A configured `CONDUIT_S2S_SECRET` honors this value. The container image sets `0.0.0.0`. |
@@ -61,7 +63,7 @@ t=<unix seconds>,v1=<hex hmac-sha256>
 X-Gateway-S2S: t=1710000000,v1=<hmac-sha256("t=1710000000")>
 ```
 
-In `AUTH_MODE=gateway`, `/mcp` also requires `X-CW-Company-Id`, `X-CW-Public-Key`, `X-CW-Private-Key`, and `X-CW-Client-Id` (`X-CW-URL` is optional). Those headers are the credential source for that request. A request missing any required header returns 401.
+In `AUTH_MODE=gateway`, `/mcp` also requires `X-CW-Company-Id`, `X-CW-Public-Key`, `X-CW-Private-Key`, and `X-CW-Client-Id` (`X-CW-URL`, `X-CW-Member-Id`, and `X-CW-Force-Member-Id` are optional). Those headers are the credential source for that request. A request missing any required header returns 401.
 
 Entra OAuth discovery routes stay available when `MCP_OAUTH_ENABLED=true`. `POST /mcp` still requires a valid `X-Gateway-S2S` header when the secret is set.
 
@@ -77,6 +79,22 @@ Entra OAuth discovery routes stay available when `MCP_OAUTH_ENABLED=true`. `POST
 For self-hosted instances, set `CW_MANAGE_URL` to your server's base URL. The server automatically appends `/v4_6_release/apis/3.0` unless the URL already contains that path.
 
 If your self-hosted instance uses a self-signed certificate, also set `CW_MANAGE_REJECT_UNAUTHORIZED=false`.
+
+### Member Attribution (`CW_MANAGE_MEMBER_ID`)
+
+By default ConnectWise attributes every note and time entry to the **API member** that authenticated the request. To make writes show up as a real technician, set the member's numeric id (find it with `cw_search_members`):
+
+| Setting | `cw_add_ticket_note` / `cw_add_project_ticket_note` / `cw_create_time_entry` behaviour |
+| --- | --- |
+| unset | `memberId` is sent only when the caller passes it (`cw_create_time_entry` requires it) |
+| `CW_MANAGE_MEMBER_ID=123` | Caller's `memberId` wins; `123` fills in when it is omitted |
+| `CW_MANAGE_MEMBER_ID=123` + `CW_MANAGE_FORCE_MEMBER_ID=true` | `123` is always sent; a caller-supplied `memberId` is ignored and the tool result says so |
+
+Forcing is the recommended setting for one-server-per-technician deployments: the model cannot attribute work to someone else no matter what the prompt says. The API member's security role must allow **Time Entry – All** and **Service Tickets – Add/Edit All** (not *My*), or Manage returns 403 when `member.id` is not the API member itself.
+
+In gateway mode the same policy arrives per request via the `X-CW-Member-Id` and `X-CW-Force-Member-Id` headers, so one hosted server can attribute each request to the signed-in user.
+
+The audit trail still records the API member as the actor; that is ConnectWise behaviour and cannot be changed from the API.
 
 ### Getting Your API Keys
 

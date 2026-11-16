@@ -11,6 +11,8 @@
  *   CW_MANAGE_PRIVATE_KEY       - API member private key
  *   CW_MANAGE_CLIENT_ID         - Client ID from ConnectWise Developer Portal
  *   CW_MANAGE_REJECT_UNAUTHORIZED - Set to "false" to allow self-signed certs (default: "true")
+ *   CW_MANAGE_MEMBER_ID        - Member id to attribute notes/time entries to (optional)
+ *   CW_MANAGE_FORCE_MEMBER_ID  - "true" to override any caller-supplied memberId (default: "false")
  *
  * Self-signed certificate support is scoped to this client instance's own
  * requests via an undici Agent passed as fetch's `dispatcher` option -- NOT
@@ -27,6 +29,7 @@ import {
   type SafeErrorDetail,
 } from "./safe-error.js";
 import { assertSafeGatewayUrl } from "./url-guard.js";
+import { buildMemberPolicy, EMPTY_MEMBER_POLICY, type MemberPolicy } from "./member-policy.js";
 
 export interface CwManageConfig {
   baseUrl: string;
@@ -36,6 +39,8 @@ export interface CwManageConfig {
   clientId: string;
   /** Set when baseUrl came from the X-CW-Url header; checked before every request. */
   untrustedBaseUrl?: boolean;
+  /** Member attribution policy for notes and time entries (see member-policy.ts). */
+  memberPolicy?: MemberPolicy;
 }
 
 export function getConfig(): CwManageConfig | null {
@@ -53,7 +58,19 @@ export function getConfig(): CwManageConfig | null {
     process.env.CW_MANAGE_URL || "https://api-na.myconnectwise.net"
   ).replace(/\/+$/, "");
 
-  return { baseUrl, companyId, publicKey, privateKey, clientId };
+  const memberPolicy = buildMemberPolicy(
+    process.env.CW_MANAGE_MEMBER_ID,
+    process.env.CW_MANAGE_FORCE_MEMBER_ID,
+  );
+
+  return {
+    baseUrl,
+    companyId,
+    publicKey,
+    privateKey,
+    clientId,
+    ...(memberPolicy ? { memberPolicy } : {}),
+  };
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -113,8 +130,11 @@ export class CwManageClient {
   private readonly companyId: string;
   private readonly dispatcher: Agent | undefined;
   private readonly untrustedBaseUrl: string | undefined;
+  /** Member attribution policy applied by note and time-entry tools. */
+  readonly memberPolicy: MemberPolicy;
 
   constructor(config: CwManageConfig) {
+    this.memberPolicy = config.memberPolicy ?? EMPTY_MEMBER_POLICY;
     // Auth: Basic base64("{companyId}+{publicKey}:{privateKey}")
     const credentials = `${config.companyId}+${config.publicKey}:${config.privateKey}`;
     this.authHeader = `Basic ${Buffer.from(credentials).toString("base64")}`;
