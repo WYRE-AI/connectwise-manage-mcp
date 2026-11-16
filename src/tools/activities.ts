@@ -1,20 +1,23 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { customFieldConditionsSchema } from "./custom-field-conditions.js";
 
 export function registerActivityTools(server: McpServer, client: CwManageClient) {
   server.tool(
     "cw_search_activities",
-    "Search schedule activities in ConnectWise Manage.",
+    "Search schedule activities in ConnectWise Manage. Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/sales/activities", {
         conditions,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,

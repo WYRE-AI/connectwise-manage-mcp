@@ -1,22 +1,25 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient, hasApiStatus } from "../api-client.js";
+import { customFieldConditionsSchema } from "./custom-field-conditions.js";
 import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
 import { describeMemberPolicy, memberOverrideNotice, resolveMemberId } from "../member-policy.js";
 
 export function registerProjectTools(server: McpServer, client: CwManageClient) {
   server.tool(
     "cw_search_projects",
-    "Search projects in ConnectWise Manage.",
+    "Search projects in ConnectWise Manage. Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/project/projects", {
         conditions,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,
@@ -39,21 +42,23 @@ export function registerProjectTools(server: McpServer, client: CwManageClient) 
 
   server.tool(
     "cw_search_project_tickets",
-    "Search tickets under a project. Use projectId to filter by project, or conditions for CW query syntax.",
+    "Search tickets under a project. Use projectId to filter by project, or conditions for CW query syntax. Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       projectId: z.number().optional().describe("Filter by project ID"),
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'id desc')"),
     },
-    async ({ projectId, conditions, page, pageSize, orderBy }) => {
+    async ({ projectId, conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const conditionParts: string[] = [];
       if (projectId !== undefined) conditionParts.push(`project/id=${projectId}`);
       if (conditions) conditionParts.push(conditions);
 
       const result = await client.get("/project/tickets", {
         conditions: conditionParts.join(" and ") || undefined,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient, hasApiStatus } from "../api-client.js";
+import { customFieldConditionsSchema } from "./custom-field-conditions.js";
 import { buildTicketCard, TICKET_CARD_META } from "../card.builder.js";
 import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
 import { describeMemberPolicy, memberOverrideNotice, resolveMemberId } from "../member-policy.js";
@@ -67,12 +68,13 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
 
   server.tool(
     "cw_search_tickets",
-    "Search service tickets in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"status/name != 'Closed'\" or \"company/name = 'Acme'\").",
+    "Search service tickets in ConnectWise Manage. Use 'conditions' for CW query syntax (e.g. \"status/name != 'Closed'\" or \"company/name = 'Acme'\"). Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       conditions: z
         .string()
         .optional()
         .describe("ConnectWise conditions query string"),
+      customFieldConditions: customFieldConditionsSchema,
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z
         .number()
@@ -83,9 +85,10 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         .optional()
         .describe("Field to order by (e.g. 'id desc')"),
     },
-    async ({ conditions, page, pageSize, orderBy }) => {
+    async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/service/tickets", {
         conditions,
+        customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
         orderBy,

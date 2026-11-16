@@ -106,6 +106,12 @@ The audit trail still records the API member as the actor; that is ConnectWise b
 
 ## Available Tools
 
+### Custom field filters
+
+The following tools accept optional `customFieldConditions` alongside `conditions`: `cw_search_tickets`, `cw_search_projects`, `cw_search_project_tickets`, `cw_search_companies`, `cw_search_contacts`, `cw_search_configurations`, `cw_search_opportunities`, `cw_search_activities`, `cw_search_agreements`, `cw_search_invoices`, `cw_search_purchase_orders`, `cw_get_purchase_order_items`, `cw_search_procurement_products`, `cw_search_sales_orders`, `cw_get_sales_order_products`, `cw_search_catalog_items`, `cw_search_members`, `cw_search_time_entries`.
+
+For example: `caption="Contract Type" AND value="Managed"`. Match one custom field per condition using its caption and value. Strings use double quotes; dates use square brackets (e.g. `caption="Renewal Date" AND value > [2026-01-01T00:00:00Z]`); `value != null` matches any value. Supported operators: `=`, `!=`, `<`, `<=`, `>`, `>=`, `contains`, `like`, `not`. The parameter is sent unchanged and omitted when undefined or an empty string.
+
 ### Interactive Ticket Card (MCP Apps)
 
 `cw_get_ticket` renders as an interactive card in MCP Apps hosts
@@ -118,7 +124,7 @@ vars (`MCP_BRAND_NAME`, `MCP_BRAND_LOGO_URL`, `MCP_BRAND_PRIMARY_COLOR`,
 needed.
 
 ### Tickets
-- `cw_search_tickets` — Search service tickets with conditions
+- `cw_search_tickets` — Search service tickets with `conditions` and `customFieldConditions`
 - `cw_get_ticket` — Get a ticket by ID
 - `cw_get_ticket_configurations` — List configuration references associated with a service ticket (paged)
 - `cw_update_ticket_configurations` — Add/remove ticket configuration associations in an ordered batch, reporting every outcome

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { customFieldConditionsSchema } from "./custom-field-conditions.js";
 import { resolveCommunicationTypes } from "./communication-types.js";
 import { buildContactSearchQuery } from "./contact-search.js";
 import {
@@ -50,12 +51,13 @@ const contactPatchOperation = z.discriminatedUnion("op", [
 export function registerContactTools(server: McpServer, client: CwManageClient) {
   server.tool(
     "cw_search_contacts",
-    "Search contacts in ConnectWise Manage. Parent fields go in conditions with double-quoted strings (e.g. firstName = \"John\" or company/id = 5). There is no contact field named name — use firstName and lastName (a bare name = \"...\" is rewritten to those). Contact type is a child collection: do not put types or types/name in conditions (Manage returns 400 ApiFindCondition). Filter type with typeName, typeId, or childConditions such as types/name = \"Primary\". Single quotes are accepted and sent as double quotes.",
+    "Search contacts in ConnectWise Manage. Parent fields go in conditions with double-quoted strings (e.g. firstName = \"John\" or company/id = 5). There is no contact field named name — use firstName and lastName (a bare name = \"...\" is rewritten to those). Contact type is a child collection: do not put types or types/name in conditions (Manage returns 400 ApiFindCondition). Filter type with typeName, typeId, or childConditions such as types/name = \"Primary\". Single quotes are accepted and sent as double quotes. Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
       conditions: z
         .string()
         .optional()
         .describe("Parent-field conditions. Strings use double quotes. types/name is not valid here — use typeName or childConditions."),
+      customFieldConditions: customFieldConditionsSchema,
       childConditions: z
         .string()
         .optional()
@@ -72,10 +74,11 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
-    async ({ conditions, childConditions, typeName, typeId, page, pageSize, orderBy }) => {
+    async ({ conditions, customFieldConditions, childConditions, typeName, typeId, page, pageSize, orderBy }) => {
       const query = buildContactSearchQuery({ conditions, childConditions, typeName, typeId });
       const result = await client.get("/company/contacts", {
         conditions: query.conditions,
+        customFieldConditions,
         childConditions: query.childConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,
