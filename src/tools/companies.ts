@@ -39,6 +39,25 @@ export function registerCompanyTools(server: McpServer, client: CwManageClient) 
   );
 
   server.tool(
+    "cw_list_company_sites",
+    "List the sites of a company (GET /company/companies/{id}/sites). Records include id, name, address and defaultFlag. Use a site id as siteId on cw_create_contact or cw_create_ticket when the company has more than one site; without one Manage uses the company's default site.",
+    {
+      companyId: z.number().int().positive().describe("Company ID"),
+      conditions: z.string().optional().describe("Filter conditions, e.g. inactiveFlag = false"),
+      page: z.number().optional().describe("Page number (default: 1)"),
+      pageSize: z.number().optional().describe("Results per page (default: 100, max: 1000)"),
+    },
+    async ({ companyId, conditions, page, pageSize }) => {
+      const result = await client.get(`/company/companies/${companyId}/sites`, {
+        conditions,
+        page: page ?? 1,
+        pageSize: pageSize ?? 100,
+      });
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
     "cw_create_company",
     "Create a new company.",
     {
