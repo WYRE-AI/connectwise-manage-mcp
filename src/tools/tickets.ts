@@ -182,7 +182,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
 
   server.tool(
     "cw_bundle_tickets",
-    "WRITE. Bundle service tickets by attaching each child ticket to a parent ticket (PATCH /service/tickets/{childId} with parentTicketId, the same field cw_create_ticket and cw_get_ticket use). Children are attached one at a time in the supplied order; a failure on one child does not stop or roll back the others. Returns every child's outcome and sets isError if any fail. Manage enforces its own bundling rules (for example, a parent cannot itself be a child) and reports violations as the per-child error. This attaches children only; it does not merge ticket contents, and to detach a child use cw_update_ticket to replace parentTicketId.",
+    "WRITE. Bundle service tickets by attaching child tickets to a parent ticket in a single call to Manage's attachChildren endpoint (POST /service/tickets/{parentTicketId}/attachChildren). Manage applies its own bundling rules (for example, a parent cannot itself be a child). A rejection is returned as the error with isError set; the per-child outcome of a rejected request is not reported, so check the affected tickets with cw_get_ticket before retrying. A child that is already bundled under a different parent is moved to the new parent. This attaches children only; it does not merge ticket contents, and to detach a child use cw_update_ticket to replace parentTicketId.",
     {
       parentTicketId: z.number().int().positive().describe("Ticket that the children are attached to"),
       childTicketIds: z
@@ -190,6 +190,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         .min(1)
         .describe("Tickets to attach to the parent. Must not include the parent; duplicates are ignored."),
     },
+    { readOnlyHint: false, destructiveHint: true },
     async ({ parentTicketId, childTicketIds }) => {
       if (childTicketIds.includes(parentTicketId)) {
         return {
@@ -197,25 +198,30 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
           isError: true,
         };
       }
-      const results = [];
-      for (const childTicketId of new Set(childTicketIds)) {
-        try {
-          await client.patch(`/service/tickets/${childTicketId}`, [
-            { op: "replace", path: "parentTicketId", value: parentTicketId },
-          ]);
-          results.push({ childTicketId, success: true });
-        } catch (err: unknown) {
-          results.push({
-            childTicketId,
-            success: false,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+      const uniqueChildIds = [...new Set(childTicketIds)];
+      try {
+        await client.post(`/service/tickets/${parentTicketId}/attachChildren`, {
+          childTicketIds: uniqueChildIds,
+        });
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ parentTicketId, success: false, childTicketIds: uniqueChildIds, error }, null, 2),
+            },
+          ],
+          isError: true,
+        };
       }
-      const success = results.every((result) => result.success);
       return {
-        content: [{ type: "text", text: JSON.stringify({ parentTicketId, success, results }, null, 2) }],
-        isError: !success,
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ parentTicketId, success: true, childTicketIds: uniqueChildIds }, null, 2),
+          },
+        ],
       };
     },
   );

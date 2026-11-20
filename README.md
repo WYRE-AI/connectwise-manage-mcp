@@ -112,7 +112,7 @@ needed.
 - `cw_update_ticket_configurations` — Add/remove ticket configuration associations in an ordered batch, reporting every outcome
 - `cw_create_ticket` — Create a new service ticket. Optional `parentTicketId` (the same field `cw_get_ticket` returns) creates the ticket as a child of that parent.
 - `cw_update_ticket` — Update a ticket (JSON Patch)
-- `cw_bundle_tickets` — Write. Bundle tickets by attaching one or more child tickets to a parent (`parentTicketId`). Per-child results; a failure does not roll back other children. Does not merge ticket contents.
+- `cw_bundle_tickets` — Write. Bundle tickets by attaching one or more child tickets to a parent in one `POST /service/tickets/{parentTicketId}/attachChildren` call. A child already bundled under another parent is moved to the new parent. Does not merge ticket contents.
 - `cw_get_ticket_notes` — Get all notes on a ticket (including child ticket notes)
 - `cw_add_ticket_note` — Add a note to a ticket (discussion, internal, or resolution). **Nothing is emailed unless `processNotifications` is true.** `emailContactFlag`, `emailResourceFlag`, `emailCcFlag`, and `emailCc` are not ServiceNote fields and are not sent (posting them is a ConnectWise 400). A true flag only turns on `processNotifications`. Recipients come from the ticket `automaticEmailContactFlag`, `automaticEmailResourceFlag`, `automaticEmailCcFlag`, and `automaticEmailCc`. Optional `memberId` is sent as `member.id` and sets the author; omit it and Manage attributes the note to the API member. The create response reports `internalFlag` / `externalFlag` from the note type that was stored, so an internal note is not also reported as external.
 
