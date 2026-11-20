@@ -124,7 +124,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
 
   server.tool(
     "cw_create_ticket",
-    "Create a new service ticket.",
+    "Create a new service ticket. Pass siteId (see cw_list_company_sites) for a multi-site company and ownerId (a member id from cw_search_members) to assign it on creation. The automaticEmail* flags are opt-in and sent only when set; Manage's own board notification settings for new tickets still apply and are not changed by this tool.",
     {
       summary: z.string().describe("Ticket summary/title"),
       boardId: z.number().optional().describe("Service board ID"),
@@ -135,6 +135,11 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       typeId: z.number().optional().describe("Type ID"),
       subTypeId: z.number().optional().describe("SubType ID"),
       initialDescription: z.string().optional().describe("Initial ticket description"),
+      siteId: z.number().int().positive().optional().describe("Company site ID (from cw_list_company_sites)"),
+      ownerId: z.number().int().positive().optional().describe("Member ID to assign as ticket owner (from cw_search_members)"),
+      automaticEmailContactFlag: z.boolean().optional().describe("Set the ticket's Automatic Email Contact flag. Sent only when provided."),
+      automaticEmailResourceFlag: z.boolean().optional().describe("Set the ticket's Automatic Email Resource flag. Sent only when provided."),
+      automaticEmailCcFlag: z.boolean().optional().describe("Set the ticket's Automatic Email Cc flag. Sent only when provided."),
       parentTicketId: z
         .number()
         .optional()
@@ -142,7 +147,10 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
           "Parent ticket id (Manage Ticket.parentTicketId). When set, the new ticket is created as a child of this ticket. Omit to leave it unparented. Same field cw_get_ticket returns.",
         ),
     },
-    async ({ summary, boardId, companyId, contactId, statusId, priorityId, typeId, subTypeId, initialDescription, parentTicketId }) => {
+    async ({
+      summary, boardId, companyId, contactId, statusId, priorityId, typeId, subTypeId, initialDescription,
+      siteId, ownerId, automaticEmailContactFlag, automaticEmailResourceFlag, automaticEmailCcFlag, parentTicketId,
+    }) => {
       const body: Record<string, unknown> = { summary };
       if (boardId) body.board = { id: boardId };
       if (companyId) body.company = { id: companyId };
@@ -152,6 +160,11 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       if (typeId) body.type = { id: typeId };
       if (subTypeId) body.subType = { id: subTypeId };
       if (initialDescription) body.initialDescription = initialDescription;
+      if (siteId !== undefined) body.site = { id: siteId };
+      if (ownerId !== undefined) body.owner = { id: ownerId };
+      if (automaticEmailContactFlag !== undefined) body.automaticEmailContactFlag = automaticEmailContactFlag;
+      if (automaticEmailResourceFlag !== undefined) body.automaticEmailResourceFlag = automaticEmailResourceFlag;
+      if (automaticEmailCcFlag !== undefined) body.automaticEmailCcFlag = automaticEmailCcFlag;
       if (parentTicketId !== undefined) body.parentTicketId = parentTicketId;
 
       const result = await client.post("/service/tickets", body);
@@ -182,7 +195,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
 
   server.tool(
     "cw_bundle_tickets",
-    "WRITE. Bundle service tickets by attaching child tickets to a parent ticket in a single call to Manage's attachChildren endpoint (POST /service/tickets/{parentTicketId}/attachChildren). Manage applies its own bundling rules (for example, a parent cannot itself be a child). A rejection is returned as the error with isError set; the per-child outcome of a rejected request is not reported, so check the affected tickets with cw_get_ticket before retrying. A child that is already bundled under a different parent is moved to the new parent. This attaches children only; it does not merge ticket contents, and to detach a child use cw_update_ticket to replace parentTicketId.",
+    "WRITE. Bundle service tickets by attaching child tickets to a parent ticket in a single call to Manage's attachChildren endpoint (POST /service/tickets/{parentTicketId}/attachChildren). Manage applies its own bundling rules (for example, a parent cannot itself be a child). A rejection is returned as the error with isError set; the per-child outcome of a rejected request is not reported, so check the affected tickets with cw_get_ticket before retrying. A child that is already bundled under a different parent is moved to the new parent. This attaches children only; it does not merge ticket contents and does not detach children.",
     {
       parentTicketId: z.number().int().positive().describe("Ticket that the children are attached to"),
       childTicketIds: z
@@ -200,9 +213,15 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       }
       const uniqueChildIds = [...new Set(childTicketIds)];
       try {
-        await client.post(`/service/tickets/${parentTicketId}/attachChildren`, {
-          childTicketIds: uniqueChildIds,
-        });
+        // Manage's action endpoints document a { success: boolean } body, so a 2xx
+        // with success=false must not be reported as a successful bundle.
+        const response = await client.post<{ success?: boolean } | undefined>(
+          `/service/tickets/${parentTicketId}/attachChildren`,
+          { childTicketIds: uniqueChildIds },
+        );
+        if (response?.success === false) {
+          throw new Error("Manage reported success=false for attachChildren");
+        }
       } catch (err: unknown) {
         const error = err instanceof Error ? err.message : String(err);
         return {

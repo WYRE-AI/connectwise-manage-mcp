@@ -5,7 +5,7 @@
 
 **Let your AI assistant work directly with ConnectWise Manage.** Search tickets, log time, look up companies and contacts, manage projects — through natural conversation instead of clicking through the CWM interface.
 
-This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 85 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
+This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 86 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
 
 > **Part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Autotask](https://github.com/wyre-technology/autotask-mcp), [Datto RMM](https://github.com/wyre-technology/datto-rmm-mcp), [IT Glue](https://github.com/wyre-technology/itglue-mcp), [HaloPSA](https://github.com/wyre-technology/halopsa-mcp), [NinjaOne](https://github.com/wyre-technology/ninjaone-mcp), [Huntress](https://github.com/wyre-technology/huntress-mcp), and more. Built by MSPs, for MSPs.
 
@@ -110,7 +110,7 @@ needed.
 - `cw_get_ticket` — Get a ticket by ID
 - `cw_get_ticket_configurations` — List configuration references associated with a service ticket (paged)
 - `cw_update_ticket_configurations` — Add/remove ticket configuration associations in an ordered batch, reporting every outcome
-- `cw_create_ticket` — Create a new service ticket. Optional `parentTicketId` (the same field `cw_get_ticket` returns) creates the ticket as a child of that parent.
+- `cw_create_ticket` — Create a new service ticket. Optional `parentTicketId` (the same field `cw_get_ticket` returns) creates the ticket as a child of that parent. Optional `siteId` (see `cw_list_company_sites`) and `ownerId` (a member id) set the site and owner at creation. `automaticEmailContactFlag`, `automaticEmailResourceFlag` and `automaticEmailCcFlag` are opt-in and sent only when set; the board's own new-ticket notification settings in Manage still apply.
 - `cw_update_ticket` — Update a ticket (JSON Patch)
 - `cw_bundle_tickets` — Write. Bundle tickets by attaching one or more child tickets to a parent in one `POST /service/tickets/{parentTicketId}/attachChildren` call. A child already bundled under another parent is moved to the new parent. Does not merge ticket contents.
 - `cw_get_ticket_notes` — Get all notes on a ticket (including child ticket notes)
@@ -119,13 +119,14 @@ needed.
 ### Companies
 - `cw_search_companies` — Search companies
 - `cw_get_company` — Get a company by ID
+- `cw_list_company_sites` — List a company's sites (`GET /company/companies/{id}/sites`) to find the site id for `cw_create_contact` and `cw_create_ticket`
 - `cw_create_company` — Create a new company
 - `cw_update_company` — Update a company (JSON Patch)
 
 ### Contacts
 - `cw_search_contacts` — Search contacts. Filter contact type with `typeName`, `typeId`, or `childConditions` (for example `types/name = "Primary"`). `types` / `types/name` in `conditions` is invalid and returns 400 `ApiFindCondition` because type is a child collection; the tool moves those clauses to `childConditions`. Contacts have `firstName` and `lastName`, not `name`. String values use double quotes (`firstName = "Ada"`); single quotes are accepted and rewritten.
 - `cw_get_contact` — Get a contact by ID
-- `cw_create_contact` — Create a new contact. Communication type names vary per tenant, so the email and phone types are resolved from `GET /company/communicationTypes` (`emailFlag` / `phoneFlag`, cached for 10 minutes per connection) instead of assuming "Email" / "Direct". Optional `emailTypeId`, `emailTypeName`, `phoneTypeId`, `phoneTypeName` override the lookup (an id wins over a name; an unknown name lists the available types).
+- `cw_create_contact` — Create a new contact. Communication type names vary per tenant, so the email and phone types are resolved from `GET /company/communicationTypes` (`emailFlag` / `phoneFlag`, cached for 10 minutes per connection) instead of assuming "Email" / "Direct". Optional `emailTypeId`, `emailTypeName`, `phoneTypeId`, `phoneTypeName` override the lookup (an id wins over a name; an unknown name lists the available types). Optional `siteId` places the contact on a specific company site; omit it to use the company's default site.
 - `cw_list_communication_types` — List the tenant's communication types (`GET /company/communicationTypes`) to find the ids for `cw_create_contact` and `cw_update_contact`
 - `cw_update_contact` — Update a contact (JSON Patch on `PATCH /company/contacts/{id}`). Paths include `firstName`, `lastName`, `title`, `inactiveFlag`, `site`, `communicationItems` (email and phone; use `type: { id }` from `cw_list_communication_types`, since type names vary per tenant), and `customFields`. Contact types are not on this patch.
 - `cw_update_contact_types` — Add or remove a contact type such as "Decision Maker" (`POST` / `DELETE /company/contacts/{id}/typeAssociations`). Adding a type the contact already has does not create a duplicate.

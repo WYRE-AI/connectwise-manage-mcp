@@ -48,7 +48,7 @@ describe("cw_bundle_tickets (WYREAI-575)", () => {
   });
 
   it("attaches the de-duplicated children with one attachChildren call", async () => {
-    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse({ id: 10 }));
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse({ success: true }));
     vi.stubGlobal("fetch", fetchMock);
     const result = await call("cw_bundle_tickets", { parentTicketId: 10, childTicketIds: [11, 12, 11] });
     expect(result.isError).toBeFalsy();
@@ -75,6 +75,16 @@ describe("cw_bundle_tickets (WYREAI-575)", () => {
       success: false,
       childTicketIds: [11, 12],
       error: expect.stringContaining("returned 400"),
+    });
+  });
+
+  it("treats a 200 response with success=false as an error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse({ success: false })));
+    const result = await call("cw_bundle_tickets", { parentTicketId: 10, childTicketIds: [11] });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      success: false,
+      error: expect.stringContaining("success=false"),
     });
   });
 
