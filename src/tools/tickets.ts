@@ -181,6 +181,46 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
   );
 
   server.tool(
+    "cw_bundle_tickets",
+    "WRITE. Bundle service tickets by attaching each child ticket to a parent ticket (PATCH /service/tickets/{childId} with parentTicketId, the same field cw_create_ticket and cw_get_ticket use). Children are attached one at a time in the supplied order; a failure on one child does not stop or roll back the others. Returns every child's outcome and sets isError if any fail. Manage enforces its own bundling rules (for example, a parent cannot itself be a child) and reports violations as the per-child error. This attaches children only; it does not merge ticket contents, and to detach a child use cw_update_ticket to replace parentTicketId.",
+    {
+      parentTicketId: z.number().int().positive().describe("Ticket that the children are attached to"),
+      childTicketIds: z
+        .array(z.number().int().positive())
+        .min(1)
+        .describe("Tickets to attach to the parent. Must not include the parent; duplicates are ignored."),
+    },
+    async ({ parentTicketId, childTicketIds }) => {
+      if (childTicketIds.includes(parentTicketId)) {
+        return {
+          content: [{ type: "text", text: `Ticket ${parentTicketId} cannot be bundled under itself.` }],
+          isError: true,
+        };
+      }
+      const results = [];
+      for (const childTicketId of new Set(childTicketIds)) {
+        try {
+          await client.patch(`/service/tickets/${childTicketId}`, [
+            { op: "replace", path: "parentTicketId", value: parentTicketId },
+          ]);
+          results.push({ childTicketId, success: true });
+        } catch (err: unknown) {
+          results.push({
+            childTicketId,
+            success: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      const success = results.every((result) => result.success);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ parentTicketId, success, results }, null, 2) }],
+        isError: !success,
+      };
+    },
+  );
+
+  server.tool(
     "cw_get_ticket_notes",
     "Get all notes/discussions on a service ticket, including notes from any child tickets.",
     {
