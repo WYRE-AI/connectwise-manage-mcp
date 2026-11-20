@@ -102,7 +102,7 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
 
   server.tool(
     "cw_create_contact",
-    "Create a new contact. Communication type names vary per ConnectWise tenant (some have no type named \"Email\" or \"Direct\"), so the email and phone types are looked up from GET /company/communicationTypes (emailFlag / phoneFlag) unless you pass emailTypeId / emailTypeName / phoneTypeId / phoneTypeName. An id wins over a name; a name is matched case-insensitively and an unknown name returns the available types. Use cw_list_communication_types to see the ids.",
+    "Create a new contact. Communication type names vary per ConnectWise tenant (some have no type named \"Email\" or \"Direct\"), so the email and phone types are looked up from GET /company/communicationTypes (emailFlag / phoneFlag) unless you pass emailTypeId / emailTypeName / phoneTypeId / phoneTypeName. An id wins over a name; a name is matched case-insensitively and an unknown name returns the available types. Use cw_list_communication_types to see the ids. Pass siteId (see cw_list_company_sites) to place the contact on a specific company site.",
     {
       firstName: z.string().describe("First name"),
       lastName: z.string().describe("Last name"),
@@ -110,18 +110,20 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
       email: z.string().optional().describe("Email address"),
       phone: z.string().optional().describe("Phone number"),
       title: z.string().optional().describe("Job title"),
+      siteId: z.number().int().positive().optional().describe("Company site ID (from cw_list_company_sites). Omit to use the company's default site."),
       emailTypeId: z.number().optional().describe("Communication type id for the email item. Wins over emailTypeName."),
       emailTypeName: z.string().optional().describe("Communication type name for the email item (matched case-insensitively against description or name)."),
       phoneTypeId: z.number().optional().describe("Communication type id for the phone item. Wins over phoneTypeName."),
       phoneTypeName: z.string().optional().describe("Communication type name for the phone item (matched case-insensitively against description or name)."),
     },
-    async ({ firstName, lastName, companyId, email, phone, title, emailTypeId, emailTypeName, phoneTypeId, phoneTypeName }) => {
+    async ({ firstName, lastName, companyId, email, phone, title, siteId, emailTypeId, emailTypeName, phoneTypeId, phoneTypeName }) => {
       const body: Record<string, unknown> = {
         firstName,
         lastName,
         company: { id: companyId },
       };
       if (title) body.title = title;
+      if (siteId !== undefined) body.site = { id: siteId };
 
       // CW Manage uses communicationItems for email/phone. Type names differ
       // per tenant, so resolve the type instead of hardcoding one.

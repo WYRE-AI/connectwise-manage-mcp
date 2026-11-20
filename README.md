@@ -110,7 +110,7 @@ needed.
 - `cw_get_ticket` — Get a ticket by ID
 - `cw_get_ticket_configurations` — List configuration references associated with a service ticket (paged)
 - `cw_update_ticket_configurations` — Add/remove ticket configuration associations in an ordered batch, reporting every outcome
-- `cw_create_ticket` — Create a new service ticket. Optional `parentTicketId` (the same field `cw_get_ticket` returns) creates the ticket as a child of that parent.
+- `cw_create_ticket` — Create a new service ticket. Optional `parentTicketId` (the same field `cw_get_ticket` returns) creates the ticket as a child of that parent. Optional `siteId` (see `cw_list_company_sites`) and `ownerId` (a member id) set the site and owner at creation. `automaticEmailContactFlag`, `automaticEmailResourceFlag` and `automaticEmailCcFlag` are opt-in and sent only when set; the board's own new-ticket notification settings in Manage still apply.
 - `cw_update_ticket` — Update a ticket (JSON Patch)
 - `cw_get_ticket_notes` — Get all notes on a ticket (including child ticket notes)
 - `cw_add_ticket_note` — Add a note to a ticket (discussion, internal, or resolution). **Nothing is emailed unless `processNotifications` is true.** `emailContactFlag`, `emailResourceFlag`, `emailCcFlag`, and `emailCc` are not ServiceNote fields and are not sent (posting them is a ConnectWise 400). A true flag only turns on `processNotifications`. Recipients come from the ticket `automaticEmailContactFlag`, `automaticEmailResourceFlag`, `automaticEmailCcFlag`, and `automaticEmailCc`. Optional `memberId` is sent as `member.id` and sets the author; omit it and Manage attributes the note to the API member. The create response reports `internalFlag` / `externalFlag` from the note type that was stored, so an internal note is not also reported as external.
@@ -118,13 +118,14 @@ needed.
 ### Companies
 - `cw_search_companies` — Search companies
 - `cw_get_company` — Get a company by ID
+- `cw_list_company_sites` — List a company's sites (`GET /company/companies/{id}/sites`) to find the site id for `cw_create_contact` and `cw_create_ticket`
 - `cw_create_company` — Create a new company
 - `cw_update_company` — Update a company (JSON Patch)
 
 ### Contacts
 - `cw_search_contacts` — Search contacts. Filter contact type with `typeName`, `typeId`, or `childConditions` (for example `types/name = "Primary"`). `types` / `types/name` in `conditions` is invalid and returns 400 `ApiFindCondition` because type is a child collection; the tool moves those clauses to `childConditions`. Contacts have `firstName` and `lastName`, not `name`. String values use double quotes (`firstName = "Ada"`); single quotes are accepted and rewritten.
 - `cw_get_contact` — Get a contact by ID
-- `cw_create_contact` — Create a new contact. Communication type names vary per tenant, so the email and phone types are resolved from `GET /company/communicationTypes` (`emailFlag` / `phoneFlag`, cached for 10 minutes per connection) instead of assuming "Email" / "Direct". Optional `emailTypeId`, `emailTypeName`, `phoneTypeId`, `phoneTypeName` override the lookup (an id wins over a name; an unknown name lists the available types).
+- `cw_create_contact` — Create a new contact. Communication type names vary per tenant, so the email and phone types are resolved from `GET /company/communicationTypes` (`emailFlag` / `phoneFlag`, cached for 10 minutes per connection) instead of assuming "Email" / "Direct". Optional `emailTypeId`, `emailTypeName`, `phoneTypeId`, `phoneTypeName` override the lookup (an id wins over a name; an unknown name lists the available types). Optional `siteId` places the contact on a specific company site; omit it to use the company's default site.
 - `cw_list_communication_types` — List the tenant's communication types (`GET /company/communicationTypes`) to find the ids for `cw_create_contact` and `cw_update_contact`
 - `cw_update_contact` — Update a contact (JSON Patch on `PATCH /company/contacts/{id}`). Paths include `firstName`, `lastName`, `title`, `inactiveFlag`, `site`, `communicationItems` (email and phone; use `type: { id }` from `cw_list_communication_types`, since type names vary per tenant), and `customFields`. Contact types are not on this patch.
 - `cw_update_contact_types` — Add or remove a contact type such as "Decision Maker" (`POST` / `DELETE /company/contacts/{id}/typeAssociations`). Adding a type the contact already has does not create a duplicate.

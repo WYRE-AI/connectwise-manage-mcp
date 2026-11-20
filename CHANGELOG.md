@@ -10,6 +10,8 @@
 
 ### Added
 
+- **WYREAI-705 (onboarding and ticket creation depth).** `cw_list_company_sites` lists a company's sites (`GET /company/companies/{id}/sites`) so multi-site companies can be targeted. `cw_create_contact` accepts `siteId` (sent as `site.id`; omitted when unset, so Manage keeps using the company default). `cw_create_ticket` accepts `siteId`, `ownerId` (sent as `owner.id`) and the opt-in `automaticEmailContactFlag`, `automaticEmailResourceFlag` and `automaticEmailCcFlag`; each is sent only when provided and the defaults are unchanged. The board's own new-ticket notification settings in Manage are not controlled by this tool.
+
 - **Custom field filters.** `cw_search_tickets`, `cw_search_projects`, `cw_search_project_tickets`, `cw_search_companies`, `cw_search_contacts`, `cw_search_configurations`, `cw_search_opportunities`, `cw_search_activities`, `cw_search_agreements`, `cw_search_invoices`, `cw_search_purchase_orders`, `cw_get_purchase_order_items`, `cw_search_procurement_products`, `cw_search_sales_orders`, `cw_get_sales_order_products`, `cw_search_catalog_items`, `cw_search_members`, `cw_search_time_entries` accept optional `customFieldConditions` alongside `conditions`, e.g. `caption="Contract Type" AND value="Managed"`. The parameter is passed unchanged and omitted when unset (undefined or an empty string).
 
 - **WYREAI-529.** `cw_list_communication_types` lists the tenant's communication types (`GET /company/communicationTypes`), so callers can find the ids to use in `cw_create_contact` and `cw_update_contact`.
