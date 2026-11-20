@@ -194,6 +194,58 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
   );
 
   server.tool(
+    "cw_bundle_tickets",
+    "WRITE. Bundle service tickets by attaching child tickets to a parent ticket in a single call to Manage's attachChildren endpoint (POST /service/tickets/{parentTicketId}/attachChildren). Manage applies its own bundling rules (for example, a parent cannot itself be a child). A rejection is returned as the error with isError set; the per-child outcome of a rejected request is not reported, so check the affected tickets with cw_get_ticket before retrying. A child that is already bundled under a different parent is moved to the new parent. This attaches children only; it does not merge ticket contents and does not detach children.",
+    {
+      parentTicketId: z.number().int().positive().describe("Ticket that the children are attached to"),
+      childTicketIds: z
+        .array(z.number().int().positive())
+        .min(1)
+        .describe("Tickets to attach to the parent. Must not include the parent; duplicates are ignored."),
+    },
+    { readOnlyHint: false, destructiveHint: true },
+    async ({ parentTicketId, childTicketIds }) => {
+      if (childTicketIds.includes(parentTicketId)) {
+        return {
+          content: [{ type: "text", text: `Ticket ${parentTicketId} cannot be bundled under itself.` }],
+          isError: true,
+        };
+      }
+      const uniqueChildIds = [...new Set(childTicketIds)];
+      try {
+        // Manage's action endpoints document a { success: boolean } body, so a 2xx
+        // with success=false must not be reported as a successful bundle.
+        const response = await client.post<{ success?: boolean } | undefined>(
+          `/service/tickets/${parentTicketId}/attachChildren`,
+          { childTicketIds: uniqueChildIds },
+        );
+        if (response?.success === false) {
+          throw new Error("Manage reported success=false for attachChildren");
+        }
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ parentTicketId, success: false, childTicketIds: uniqueChildIds, error }, null, 2),
+            },
+          ],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ parentTicketId, success: true, childTicketIds: uniqueChildIds }, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
     "cw_get_ticket_notes",
     "Get all notes/discussions on a service ticket, including notes from any child tickets.",
     {
