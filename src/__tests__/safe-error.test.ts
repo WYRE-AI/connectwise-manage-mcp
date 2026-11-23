@@ -484,7 +484,7 @@ describe("CwManageClient on a failed response", () => {
 
     expect(error.status).toBe(403);
     expect(error.message).toMatch(
-      /returned 403 \(reference [0-9a-f-]{36}\): \{"code":"Forbidden","message":"Invoices Edit required"\}$/,
+      /returned 403 \(reference [0-9a-f-]{36}\): \{"code":"Forbidden","message":"Invoices Edit required"\} ConnectWise refused this for lack of a security role permission/,
     );
     expect(error.message).not.toContain("INTERNAL-STACK-TRACE");
     expect(logged()).not.toContain("Invoices Edit required");

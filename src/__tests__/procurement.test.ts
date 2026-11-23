@@ -433,17 +433,25 @@ describe("cw_get_inventory_on_hand", () => {
     expect(client.gets()[0].params!.conditions).toBe("id in (10,12)");
   });
 
-  it("filters to a single catalog item when asked", async () => {
+  it("reads one catalog item's stock from the catalog item, not the bin walk", async () => {
     const { client, call } = setup();
-    client.getResponder = (path) =>
-      path === "/procurement/warehouseBins"
-        ? [{ id: 10, name: "BIN-A", warehouse: { id: 1, name: "Main" } }]
-        : [];
+    client.getResponder = (path) => {
+      if (path === "/procurement/catalog/500/inventory") {
+        return [
+          { catalogItem: { id: 500, identifier: "SKU-500" }, warehouse: { id: 1, name: "Main" }, warehouseBin: { id: 10, name: "BIN-A" }, onHand: 4 },
+          { catalogItem: { id: 500, identifier: "SKU-500" }, warehouse: { id: 2, name: "Van" }, warehouseBin: { id: 20, name: "VAN-1" }, onHand: 3 },
+        ];
+      }
+      return [];
+    };
 
-    await call("cw_get_inventory_on_hand", { warehouseId: 1, catalogItemId: 500 });
+    const result = await call("cw_get_inventory_on_hand", { warehouseId: 1, catalogItemId: 500 });
 
-    const binCall = client.gets().find((c) => c.path.includes("inventoryOnHand"));
-    expect(binCall!.params!.conditions).toBe("catalogItem/id = 500");
+    // No setup-table calls: warehouses and bins need System > Table Setup.
+    expect(client.gets().some((c) => c.path.startsWith("/procurement/warehouse"))).toBe(false);
+    expect(result.summary.source).toBe("catalogItemInventory");
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ warehouseBinId: 10, onHand: 4 });
   });
 
   it("skips catalog lookups when costs are not requested", async () => {

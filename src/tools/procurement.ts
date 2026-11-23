@@ -86,7 +86,7 @@ interface CatalogItemRecord {
  * rather than returning a truncated list, because callers total the rows and
  * a silent partial result would give wrong totals.
  */
-async function fetchAllPages<T>(
+export async function fetchAllPages<T>(
   client: CwManageClient,
   path: string,
   params: Record<string, string | number | undefined> = {},
@@ -111,7 +111,7 @@ async function fetchAllPages<T>(
 }
 
 /** Run an async mapper over items, at most `limit` in flight at once. */
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   mapper: (item: T) => Promise<R>,
@@ -226,7 +226,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
 
   server.tool(
     "cw_get_inventory_on_hand",
-    "Report every catalog item holding non-zero stock, one row per warehouse bin. Negative on-hand is reported too, because a negative balance is exactly what an adjustment usually has to correct. ConnectWise exposes on-hand only per bin, so this walks every bin and pages each one fully, which makes a whole-instance scan slow: pass warehouseId or binIds to narrow it. Each row gives the catalog item ID, identifier and description, the warehouse and bin, the on-hand quantity, the unit cost and the extended value, plus any serial numbers held in that bin. Read the cost with care: the ConnectWise API exposes no average cost field anywhere, so unitCost here is the catalog item's own cost field, which is the standing cost and not the weighted average cost ConnectWise values the stock at.",
+    "Report every catalog item holding non-zero stock, one row per warehouse bin. Negative on-hand is reported too, because a negative balance is exactly what an adjustment usually has to correct. Pass catalogItemId to read one item's stock directly from the catalog item (needs only the Procurement > Product Catalog permission). Without catalogItemId, ConnectWise exposes on-hand only per bin, so this walks every bin and pages each one fully, which makes a whole-instance scan slow and also needs System > Table Setup access to the Warehouse and Warehouse Bin tables: pass warehouseId or binIds to narrow it. Each row gives the catalog item ID, identifier and description, the warehouse and bin, the on-hand quantity, the unit cost and the extended value, plus any serial numbers held in that bin. Read the cost with care: the ConnectWise API exposes no average cost field anywhere, so unitCost here is the catalog item's own cost field, which is the standing cost and not the weighted average cost ConnectWise values the stock at.",
     {
       warehouseId: z
         .number()
@@ -243,7 +243,9 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
       catalogItemId: z
         .number()
         .optional()
-        .describe("Only report rows for this catalog item ID"),
+        .describe(
+          "Only report rows for this catalog item ID. Reads the item's own inventory list instead of walking bins, so no Table Setup permission is needed",
+        ),
       includeInactiveBins: z
         .boolean()
         .optional()
@@ -274,36 +276,56 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
       const withSerials = includeSerialNumbers ?? true;
       const withCosts = includeCosts ?? true;
 
-      // 1. Work out which bins to scan.
-      const binConditions =
-        binIds && binIds.length > 0
-          ? `id in (${binIds.join(",")})`
-          : andConditions(
-              warehouseId !== undefined ? `warehouse/id = ${warehouseId}` : undefined,
-              includeInactiveBins ? undefined : "inactiveFlag = false",
-            );
+      let scannable: WarehouseBinRecord[] = [];
+      let perBin: InventoryOnHandRecord[][];
+      let source: "catalogItemInventory" | "warehouseBinScan";
 
-      const bins = await fetchAllPages<WarehouseBinRecord>(
-        client,
-        "/procurement/warehouseBins",
-        { conditions: binConditions },
-      );
+      if (catalogItemId !== undefined) {
+        // 1a. One catalog item: read its stock straight off the catalog item
+        //     (GET /procurement/catalog/{id}/inventory). That endpoint needs only
+        //     Procurement > Product Catalog. The bin walk below needs
+        //     System > Table Setup (Warehouse, Warehouse Bin), which a key with
+        //     only Procurement access does not have, so it 403s on the first call.
+        source = "catalogItemInventory";
+        const binFilter = binIds && binIds.length > 0 ? new Set(binIds) : undefined;
+        const all = await fetchAllPages<InventoryOnHandRecord>(
+          client,
+          `/procurement/catalog/${catalogItemId}/inventory`,
+        );
+        perBin = [
+          all.filter((row) => {
+            if (binFilter) return binFilter.has(row.warehouseBin?.id ?? Number.NaN);
+            if (warehouseId !== undefined) return row.warehouse?.id === warehouseId;
+            return true;
+          }),
+        ];
+      } else {
+        source = "warehouseBinScan";
+        // 1b. Work out which bins to scan.
+        const binConditions =
+          binIds && binIds.length > 0
+            ? `id in (${binIds.join(",")})`
+            : andConditions(
+                warehouseId !== undefined ? `warehouse/id = ${warehouseId}` : undefined,
+                includeInactiveBins ? undefined : "inactiveFlag = false",
+              );
 
-      const scannable = bins.filter((bin) => typeof bin.id === "number");
+        const bins = await fetchAllPages<WarehouseBinRecord>(
+          client,
+          "/procurement/warehouseBins",
+          { conditions: binConditions },
+        );
 
-      // 2. Page every bin's on-hand list.
-      const perBin = await mapWithConcurrency(
-        scannable,
-        BIN_SCAN_CONCURRENCY,
-        async (bin) =>
+        scannable = bins.filter((bin) => typeof bin.id === "number");
+
+        // 2. Page every bin's on-hand list.
+        perBin = await mapWithConcurrency(scannable, BIN_SCAN_CONCURRENCY, async (bin) =>
           fetchAllPages<InventoryOnHandRecord>(
             client,
             `/procurement/warehouseBins/${bin.id}/inventoryOnHand`,
-            catalogItemId !== undefined
-              ? { conditions: `catalogItem/id = ${catalogItemId}` }
-              : {},
           ),
-      );
+        );
+      }
 
       // 3. Keep only non-zero balances, negatives included.
       const onHandRows = perBin
@@ -375,6 +397,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
             text: JSON.stringify(
               {
                 summary: {
+                  source,
                   binsScanned: scannable.length,
                   binsWithStock: new Set(rows.map((r) => r.warehouseBinId)).size,
                   rowCount: rows.length,
