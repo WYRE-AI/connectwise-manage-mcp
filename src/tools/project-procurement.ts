@@ -155,6 +155,8 @@ export interface MatchedPoLine {
   canceled: boolean;
   warehouse: string | null;
   warehouseBin: string | null;
+  /** Sales order IDs the PO line lists. */
+  salesOrderIds: number[];
   matchedBy: "salesOrder" | "customerCompanyAndCatalogItem";
 }
 
@@ -245,8 +247,22 @@ function flattenLine(
     canceled,
     warehouse: line.warehouse?.name ?? null,
     warehouseBin: line.warehouseBin?.name ?? null,
+    salesOrderIds: (line.salesOrder ?? [])
+      .map((so) => so.id)
+      .filter((id): id is number => typeof id === "number"),
     matchedBy,
   };
+}
+
+/**
+ * A copy of a matched line as seen from one product: matchedBy is
+ * "salesOrder" only when the line lists that product's own sales order.
+ * The shared line record is not changed.
+ */
+export function lineForProduct(line: MatchedPoLine, product: ProductItemRecord): MatchedPoLine {
+  const soId = product.salesOrder?.id;
+  const bySalesOrder = typeof soId === "number" && line.salesOrderIds.includes(soId);
+  return { ...line, matchedBy: bySalesOrder ? "salesOrder" : "customerCompanyAndCatalogItem" };
 }
 
 /** Scope a product search to a project or a ticket. */
@@ -477,7 +493,9 @@ export function registerProjectProcurementTools(server: McpServer, client: CwMan
 
       const rows = products.map((p, i) => {
         const f = fulfilment[i];
-        const lines = po?.lines.filter((l) => l.catalogItemId === p.catalogItem?.id);
+        const lines = po?.lines
+          .filter((l) => l.catalogItemId === p.catalogItem?.id)
+          .map((l) => lineForProduct(l, p));
         const c = classifyProduct(p, f.picked, f.shipped, lines);
         return {
           productItemId: p.id ?? null,

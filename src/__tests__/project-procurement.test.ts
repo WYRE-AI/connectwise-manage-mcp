@@ -122,6 +122,26 @@ describe("cw_get_project_product_status", () => {
     expect(lines.params.conditions).toBe("product/id in (1,2,3,4)");
   });
 
+  it("labels a sales-order match only on the product that owns that sales order", async () => {
+    const { client, call } = setup();
+    const products = [
+      { id: 201, catalogItem: { id: 3 }, quantity: 1, productClass: "Inventory", company: { id: 42 }, salesOrder: { id: 9 } },
+      { id: 202, catalogItem: { id: 3 }, quantity: 1, productClass: "Inventory", company: { id: 42 }, salesOrder: { id: 10 } },
+    ];
+    client.responder = (path) => {
+      if (path === "/procurement/products") return products;
+      if (path === "/procurement/purchaseorders") return [{ id: 70, poNumber: "PO-70" }];
+      if (path === "/procurement/purchaseorders/70/lineitems")
+        return [{ id: 1, product: { id: 3 }, quantity: 1, receivedQuantity: 0, salesOrder: [{ id: 9 }] }];
+      return [];
+    };
+    const result = await call("cw_get_project_product_status", { projectId: 875 });
+    const byId = Object.fromEntries(result.products.map((p: { productItemId: number }) => [p.productItemId, p]));
+    expect(byId[201].purchaseOrderLines[0].matchedBy).toBe("salesOrder");
+    expect(byId[202].purchaseOrderLines[0].matchedBy).toBe("customerCompanyAndCatalogItem");
+    expect(byId[202].purchaseOrderLines[0].salesOrderIds).toEqual([9]);
+  });
+
   it("skips the PO match when asked", async () => {
     const { client, call } = setup();
     client.responder = projectFixture();
@@ -196,7 +216,7 @@ describe("classifyProduct", () => {
     purchaseOrderId: 1, poNumber: "P", poStatus: null, vendor: null, lineId: 1, catalogItemId: 1,
     quantity: 1, receivedQuantity: 0, outstandingQuantity: 1, receivedStatus: "Waiting", dateReceived: null,
     expectedShipDate: null, expectedArrivalDate: null, trackingNumber: null, canceled: false,
-    warehouse: null, warehouseBin: null, matchedBy: "customerCompanyAndCatalogItem", ...over,
+    warehouse: null, warehouseBin: null, salesOrderIds: [], matchedBy: "customerCompanyAndCatalogItem", ...over,
   });
 
   it("marks a product needing purchase with no PO as not_ordered", () => {
