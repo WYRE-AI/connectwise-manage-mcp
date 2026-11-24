@@ -26,6 +26,7 @@ import {
   safeErrorDetail,
   type SafeErrorDetail,
 } from "./safe-error.js";
+import { isPermissionRefusal, securityHint } from "./cw-security.js";
 import { assertSafeGatewayUrl } from "./url-guard.js";
 
 export interface CwManageConfig {
@@ -66,8 +67,10 @@ const REQUEST_TIMEOUT_MS = 30_000;
  * does this object: the body is read once in the constructor to pull the
  * allowlisted, redacted validation detail out of a 4xx, then dropped. A 4xx
  * message ends with that detail so the caller can see which field or
- * permission was refused. A 5xx and every other status keep only the status
- * and the reference.
+ * permission was refused. A security-role refusal (403, or a 4xx whose
+ * message talks about permission) also names the ConnectWise security role
+ * module and permission the endpoint needs (see cw-security.ts). A 5xx and
+ * every other status keep only the status and the reference.
  *
  * `status` lets callers branch on the HTTP code (e.g. retry policy) without
  * parsing the message. `reference` matches the log line written for the
@@ -84,7 +87,10 @@ export class CwApiError extends Error {
     const reference = newErrorReference();
     const detail = safeErrorDetail(status, body);
     const suffix = detail ? `: ${formatErrorDetail(detail)}` : "";
-    super(`ConnectWise API ${method} ${path} returned ${status} (reference ${reference})${suffix}`);
+    const permissionHint = isPermissionRefusal(status, detail?.message) ? ` ${securityHint(path)}` : "";
+    super(
+      `ConnectWise API ${method} ${path} returned ${status} (reference ${reference})${suffix}${permissionHint}`,
+    );
     this.name = "CwApiError";
     this.method = method;
     this.path = path;

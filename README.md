@@ -132,7 +132,7 @@ needed.
 - `cw_update_contact_types` — Add or remove a contact type such as "Decision Maker" (`POST` / `DELETE /company/contacts/{id}/typeAssociations`). Adding a type the contact already has does not create a duplicate.
 
 ### Projects
-- `cw_search_projects` — Search projects
+- `cw_search_projects` — Search projects. Open projects only by default (`closedFlag = false`); pass `activeOnly: false` for closed ones, and `fields` to trim the payload
 - `cw_get_project` — Get a project by ID
 - `cw_create_project` — Create a new project
 - `cw_search_project_tickets` — Search tickets under a project
@@ -192,6 +192,10 @@ needed.
 - `cw_get_purchase_order_items` — Get the line items on a purchase order
 - `cw_search_procurement_products` — Search procurement product items (SKUs placed on a ticket, project, order or opportunity)
 - `cw_get_procurement_product` — Get a procurement product item by ID
+- `cw_get_project_product_status` — For a project or ticket, every product with ordered, picked (received and allocated), shipped and awaiting quantities and a status (`in_stock`, `partially_received`, `awaiting_arrival`, `awaiting_pick`, `not_ordered`, `shipped`, `not_stocked`, `cancelled`), with matching purchase order lines and receipts
+- `cw_get_project_purchase_order_lines` — Purchase order lines and receipts (received quantity, received status, date received, tracking) for the products on a project or ticket
+
+ConnectWise gives a purchase order line no project or ticket reference, so the two project tools match lines on the customer's purchase orders by sales order, else by customer company and catalog item. Each matched line says which (`matchedBy`).
 
 ### Sales Orders
 - `cw_search_sales_orders` — Search sales orders
@@ -218,12 +222,15 @@ needed.
 Warehouse stock and Inventory Adjustments. An adjustment is the only supported way to change on-hand quantities through the API: create the header, add the lines, then close it to post.
 - `cw_list_warehouses` — List inventory warehouses
 - `cw_list_warehouse_bins` — List warehouse bins, optionally for one warehouse
-- `cw_get_inventory_on_hand` — Report every item with non-zero on-hand per bin, negatives included, with unit cost and extended value
+- `cw_get_inventory_on_hand` — Report every item with non-zero on-hand per bin, negatives included, with unit cost and extended value. With `catalogItemId` it reads that item's own inventory list instead of walking bins
+- `cw_get_catalog_item_inventory` — On-hand stock for one catalog item (by ID or SKU), per warehouse bin, with the total
 - `cw_list_adjustment_types` — List inventory adjustment types
 - `cw_create_adjustment` — Create an adjustment header (moves no stock)
 - `cw_add_adjustment_detail` — Add one signed adjustment line, with serial numbers for serialised items
 - `cw_get_adjustment` — Get an adjustment header with all of its detail lines
 - `cw_close_adjustment` — Post the adjustment. **Not reversible except by a counter-adjustment**
+
+**Security role permissions.** Warehouses, warehouse bins and adjustment types are ConnectWise setup tables, so `cw_list_warehouses`, `cw_list_warehouse_bins`, `cw_list_adjustment_types` and the whole-instance bin scan in `cw_get_inventory_on_hand` need **System › Table Setup** (Inquire) with the Inventory / Warehouse, Warehouse Bin and Adjustment Type tables allowed. Procurement › Inventory Adjustments, Inventory Transfers or Product Catalog access does not cover them. `cw_get_catalog_item_inventory` (and `cw_get_inventory_on_hand` with `catalogItemId`) need only **Procurement › Product Catalog**. Product items need **Procurement › Products**, which is separate from Product Catalog, and purchase orders need **Procurement › Purchase Orders**. When ConnectWise refuses a call for a missing permission, the error names the module and permission to grant.
 
 Two limits of the ConnectWise API are worth knowing before using these. There is no `summary` field on an adjustment: the free-text fields are `reason` (max 100 characters) and `notes`. And no endpoint exposes an average cost, so the `unitCost` reported by `cw_get_inventory_on_hand` is the catalog item's own `cost` field, which is the standing cost rather than the weighted average cost ConnectWise values the stock at.
 

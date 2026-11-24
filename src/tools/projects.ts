@@ -7,17 +7,30 @@ import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
 export function registerProjectTools(server: McpServer, client: CwManageClient) {
   server.tool(
     "cw_search_projects",
-    "Search projects in ConnectWise Manage. Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
+    "Search projects in ConnectWise Manage. Returns active (open) projects only by default (closedFlag = false), which keeps large instances fast; set activeOnly to false to include closed projects. Use 'fields' to return only the columns you need (e.g. \"id,name,status/name,company/name\"). Filter on custom fields with 'customFieldConditions' (e.g. caption=\"Contract Type\" AND value=\"Managed\").",
     {
-      conditions: z.string().optional().describe("ConnectWise conditions query string"),
+      conditions: z.string().optional().describe("ConnectWise conditions query string, ANDed with the active filter"),
       customFieldConditions: customFieldConditionsSchema,
+      activeOnly: z
+        .boolean()
+        .optional()
+        .describe("Only open projects, closedFlag = false (default: true). Set false to include closed projects"),
+      fields: z
+        .string()
+        .max(1000)
+        .optional()
+        .describe("Comma-separated field list to return (e.g. \"id,name,status/name,company/name\")"),
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
-    async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
+    async ({ conditions, activeOnly, fields, customFieldConditions, page, pageSize, orderBy }) => {
+      const parts: string[] = [];
+      if (activeOnly ?? true) parts.push("closedFlag = false");
+      if (conditions && conditions.trim()) parts.push(`(${conditions})`);
       const result = await client.get("/project/projects", {
-        conditions,
+        conditions: parts.join(" and ") || undefined,
+        fields,
         customFieldConditions,
         page: page ?? 1,
         pageSize: pageSize ?? 25,

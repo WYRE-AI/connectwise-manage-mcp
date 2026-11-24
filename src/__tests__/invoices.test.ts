@@ -272,7 +272,7 @@ describe("cw_update_invoice tool", () => {
     const result = res.result as ToolResult;
     expect(result.isError).toBe(true);
     expect(result.content?.[0]?.text).toMatch(
-      /returned 403 \(reference [0-9a-f-]{36}\): \{"code":"Forbidden","message":"Invoices Edit required"\}$/,
+      /returned 403 \(reference [0-9a-f-]{36}\): \{"code":"Forbidden","message":"Invoices Edit required"\} ConnectWise refused this for lack of a security role permission/,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

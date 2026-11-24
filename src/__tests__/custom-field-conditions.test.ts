@@ -92,7 +92,9 @@ describe("custom field conditions", () => {
       expect(url.searchParams.get("conditions")).toBe(
         name === "cw_get_sales_order_products"
           ? `salesOrder/id=42 and (${CONDITIONS})`
-          : CONDITIONS,
+          : name === "cw_search_projects"
+            ? `closedFlag = false and (${CONDITIONS})`
+            : CONDITIONS,
       );
     });
 
