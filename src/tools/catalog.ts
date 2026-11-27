@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { customFieldConditionsSchema } from "./custom-field-conditions.js";
+import { READ_ONLY, ADDITIVE_WRITE, DESTRUCTIVE_WRITE } from "./annotations.js";
 
 /**
  * Product Catalog tools (ConnectWise Procurement API).
@@ -25,6 +26,7 @@ export function registerCatalogTools(server: McpServer, client: CwManageClient) 
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'identifier asc')"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/procurement/catalog", {
         conditions,
@@ -43,6 +45,7 @@ export function registerCatalogTools(server: McpServer, client: CwManageClient) 
     {
       id: z.number().describe("Catalog item ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/procurement/catalog/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -74,6 +77,7 @@ export function registerCatalogTools(server: McpServer, client: CwManageClient) 
           "Passthrough for any additional catalog item fields supported by the CW API (merged into the request body).",
         ),
     },
+    ADDITIVE_WRITE,
     async ({
       identifier,
       description,
@@ -123,6 +127,7 @@ export function registerCatalogTools(server: McpServer, client: CwManageClient) 
         )
         .describe("Array of JSON Patch operations"),
     },
+    DESTRUCTIVE_WRITE,
     async ({ id, operations }) => {
       const result = await client.patch(`/procurement/catalog/${id}`, operations);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -141,6 +146,7 @@ export function registerCatalogTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25)"),
     },
+    READ_ONLY,
     async ({ conditions, page, pageSize }) => {
       const result = await client.get("/procurement/categories", {
         conditions,
@@ -159,6 +165,7 @@ export function registerCatalogTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25)"),
     },
+    READ_ONLY,
     async ({ conditions, page, pageSize }) => {
       const result = await client.get("/procurement/subCategories", {
         conditions,
@@ -177,6 +184,7 @@ export function registerCatalogTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25)"),
     },
+    READ_ONLY,
     async ({ conditions, page, pageSize }) => {
       const result = await client.get("/procurement/manufacturers", {
         conditions,

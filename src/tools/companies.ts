@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { customFieldConditionsSchema } from "./custom-field-conditions.js";
+import { READ_ONLY, ADDITIVE_WRITE, DESTRUCTIVE_WRITE } from "./annotations.js";
 
 export function registerCompanyTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -14,6 +15,7 @@ export function registerCompanyTools(server: McpServer, client: CwManageClient) 
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/company/companies", {
         conditions,
@@ -32,6 +34,7 @@ export function registerCompanyTools(server: McpServer, client: CwManageClient) 
     {
       id: z.number().describe("Company ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/company/companies/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -47,6 +50,7 @@ export function registerCompanyTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 100, max: 1000)"),
     },
+    READ_ONLY,
     async ({ companyId, conditions, page, pageSize }) => {
       const result = await client.get(`/company/companies/${companyId}/sites`, {
         conditions,
@@ -74,8 +78,9 @@ export function registerCompanyTools(server: McpServer, client: CwManageClient) 
       website: z.string().optional().describe("Website URL"),
       siteName: z.string().optional().describe("Name of the company's primary site (default: \"Main\"). ConnectWise requires a site name."),
     },
-      async ({ name, identifier, typeIds, statusId, addressLine1, city, state, zip, country, phoneNumber, website, siteName }) => {
-           const body: Record<string, unknown> = { name, identifier, site: { name: siteName || "Main" } };
+    ADDITIVE_WRITE,
+    async ({ name, identifier, typeIds, statusId, addressLine1, city, state, zip, country, phoneNumber, website, siteName }) => {
+      const body: Record<string, unknown> = { name, identifier, site: { name: siteName || "Main" } };
       if (typeIds?.length) body.types = typeIds.map((id) => ({ id }));
       if (statusId) body.status = { id: statusId };
       if (addressLine1) body.addressLine1 = addressLine1;
@@ -106,6 +111,7 @@ export function registerCompanyTools(server: McpServer, client: CwManageClient) 
         )
         .describe("Array of JSON Patch operations"),
     },
+    DESTRUCTIVE_WRITE,
     async ({ id, operations }) => {
       const result = await client.patch(`/company/companies/${id}`, operations);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

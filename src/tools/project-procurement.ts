@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { fetchAllPages, mapWithConcurrency } from "./procurement.js";
+import { READ_ONLY } from "./annotations.js";
 
 /**
  * Project and ticket procurement status tools (ConnectWise Procurement API).
@@ -391,7 +392,7 @@ export function registerProjectProcurementTools(server: McpServer, client: CwMan
         .describe("Catalog item identifier (SKU). Used when catalogItemId is not given"),
       includeZero: z.boolean().optional().describe("Keep bins with zero on hand (default: false)"),
     },
-    { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    READ_ONLY,
     async ({ catalogItemId, identifier, includeZero }) => {
       let id = catalogItemId;
       let item: { id?: number; identifier?: string; description?: string } | undefined;
@@ -464,7 +465,7 @@ export function registerProjectProcurementTools(server: McpServer, client: CwMan
         .optional()
         .describe(`Closed purchase orders older than this many days are not matched (default: ${DEFAULT_PO_LOOKBACK_DAYS}). Open ones always are`),
     },
-    { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    READ_ONLY,
     async ({ projectId, ticketId, includeCancelled, matchPurchaseOrders, poLookbackDays }) => {
       const missing = requireScope(projectId, ticketId);
       if (missing) return missing;
@@ -567,7 +568,7 @@ export function registerProjectProcurementTools(server: McpServer, client: CwMan
         .optional()
         .describe(`Closed purchase orders older than this many days are skipped (default: ${DEFAULT_PO_LOOKBACK_DAYS}). Open ones are always read`),
     },
-    { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    READ_ONLY,
     async ({ projectId, ticketId, outstandingOnly, poLookbackDays }) => {
       const missing = requireScope(projectId, ticketId);
       if (missing) return missing;

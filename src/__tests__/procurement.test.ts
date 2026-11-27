@@ -59,7 +59,8 @@ class StubClient {
 function setup() {
   const tools = new Map<string, { description: string; schema: unknown; handler: Handler }>();
   const server = {
-    tool(name: string, description: string, schema: unknown, handler: Handler) {
+    tool(name: string, description: string, schema: unknown, a: unknown, h?: unknown) {
+      const handler = (typeof a === "function" ? a : h) as Handler;
       tools.set(name, { description, schema, handler });
     },
   };

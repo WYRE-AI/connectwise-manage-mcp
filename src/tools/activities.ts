@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { customFieldConditionsSchema } from "./custom-field-conditions.js";
+import { READ_ONLY, ADDITIVE_WRITE } from "./annotations.js";
 
 export function registerActivityTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -14,6 +15,7 @@ export function registerActivityTools(server: McpServer, client: CwManageClient)
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/sales/activities", {
         conditions,
@@ -32,6 +34,7 @@ export function registerActivityTools(server: McpServer, client: CwManageClient)
     {
       id: z.number().describe("Activity ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/sales/activities/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -51,6 +54,7 @@ export function registerActivityTools(server: McpServer, client: CwManageClient)
       dateStart: z.string().optional().describe("Start date (ISO 8601)"),
       dateEnd: z.string().optional().describe("End date (ISO 8601)"),
     },
+    ADDITIVE_WRITE,
     async ({ name, typeId, companyId, contactId, memberId, notes, dateStart, dateEnd }) => {
       const body: Record<string, unknown> = { name };
       if (typeId) body.type = { id: typeId };

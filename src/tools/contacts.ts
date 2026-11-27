@@ -14,6 +14,7 @@ import {
   type ContactTypeAssociation,
   type ContactTypeRecord,
 } from "./contact-type-update.js";
+import { READ_ONLY, ADDITIVE_WRITE, DESTRUCTIVE_WRITE } from "./annotations.js";
 
 // Same rule as cw_update_agreement_addition: z.unknown() accepts a missing
 // key (Zod treats it as undefined), so add/replace must explicitly require
@@ -74,6 +75,7 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, childConditions, typeName, typeId, page, pageSize, orderBy }) => {
       const query = buildContactSearchQuery({ conditions, childConditions, typeName, typeId });
       const result = await client.get("/company/contacts", {
@@ -94,6 +96,7 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
     {
       id: z.number().describe("Contact ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/company/contacts/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -116,6 +119,7 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
       phoneTypeId: z.number().optional().describe("Communication type id for the phone item. Wins over phoneTypeName."),
       phoneTypeName: z.string().optional().describe("Communication type name for the phone item (matched case-insensitively against description or name)."),
     },
+    ADDITIVE_WRITE,
     async ({ firstName, lastName, companyId, email, phone, title, siteId, emailTypeId, emailTypeName, phoneTypeId, phoneTypeName }) => {
       const body: Record<string, unknown> = {
         firstName,
@@ -153,6 +157,7 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 100, max: 1000)"),
     },
+    READ_ONLY,
     async ({ conditions, page, pageSize }) => {
       const result = await client.get("/company/communicationTypes", {
         conditions,
@@ -172,6 +177,7 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
         .array(contactPatchOperation)
         .describe("Array of JSON Patch operations"),
     },
+    DESTRUCTIVE_WRITE,
     async ({ id, operations }) => {
       assertContactPatchOperations(operations);
       const result = await client.patch(`/company/contacts/${id}`, operations);
@@ -198,6 +204,7 @@ export function registerContactTools(server: McpServer, client: CwManageClient) 
         .optional()
         .describe("Type-association id to remove. Only used with action remove; skips the type lookup."),
     },
+    DESTRUCTIVE_WRITE,
     async ({ id, action, typeName, typeId, associationId }) => {
       const result = await updateContactTypes(client, { id, action, typeName, typeId, associationId });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

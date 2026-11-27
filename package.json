@@ -1,6 +1,6 @@
 {
   "name": "@wyre-ai/connectwise-manage-mcp",
-  "version": "1.4.0",
+  "version": "1.18.2",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
