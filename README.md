@@ -7,7 +7,7 @@
 
 This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that gives Claude (or any MCP-compatible AI) 86 tools covering the daily operations ConnectWise Manage shops depend on. Works with both **cloud-hosted and self-hosted** CWM instances — just point it at your server.
 
-> **Part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Autotask](https://github.com/wyre-technology/autotask-mcp), [Datto RMM](https://github.com/wyre-technology/datto-rmm-mcp), [IT Glue](https://github.com/wyre-technology/itglue-mcp), [HaloPSA](https://github.com/wyre-technology/halopsa-mcp), [NinjaOne](https://github.com/wyre-technology/ninjaone-mcp), [Huntress](https://github.com/wyre-technology/huntress-mcp), and more. Built by MSPs, for MSPs.
+> **Part of the [MSP Claude Plugins](https://github.com/WYRE-AI/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Autotask](https://github.com/WYRE-AI/autotask-mcp), [Datto RMM](https://github.com/WYRE-AI/datto-rmm-mcp), [IT Glue](https://github.com/WYRE-AI/itglue-mcp), [HaloPSA](https://github.com/WYRE-AI/halopsa-mcp), [NinjaOne](https://github.com/WYRE-AI/ninjaone-mcp), [Huntress](https://github.com/WYRE-AI/huntress-mcp), and more. Built by MSPs, for MSPs.
 
 ## One-Click Deployment
 
@@ -377,4 +377,4 @@ Apache-2.0
 
 ---
 
-Built by [WYRE Technology](https://github.com/wyre-technology) — part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem
+Built by [WYRE Technology](https://github.com/WYRE-AI) — part of the [MSP Claude Plugins](https://github.com/WYRE-AI/msp-claude-plugins) ecosystem
