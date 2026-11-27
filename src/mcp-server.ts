@@ -35,6 +35,7 @@ import { registerAgreementTools } from "./tools/agreements.js";
 import { registerOpportunityTools } from "./tools/opportunities.js";
 import { registerFinanceProcurementTools } from "./tools/finance-procurement.js";
 import { registerProjectProcurementTools } from "./tools/project-procurement.js";
+import { READ_ONLY } from "./tools/annotations.js";
 
 export type { CwManageConfig };
 
@@ -107,7 +108,7 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
   const server = new McpServer(
     {
       name: "connectwise-manage-mcp",
-      version: "1.4.0",
+      version: "1.18.2",
     },
     {
       capabilities: {
@@ -130,6 +131,7 @@ export function createMcpServer(configOverride?: CwManageConfig): McpServer {
       "cw_test_connection",
       "Test the connection to ConnectWise Manage.",
       {},
+      READ_ONLY,
       async () => ({
         content: [
           {

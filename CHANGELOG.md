@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- **ITCSNY / Claude read-tool false positives.** Every registered MCP tool now advertises explicit `readOnlyHint` annotations so clients do not treat ConnectWise Manage reads as possible writes. Read tools (63) use `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`. Write tools (26) use `readOnlyHint: false`, with `destructiveHint: true` for deletes/patches/moves/irreversible posts (14, including `cw_create_time_entry` which may PATCH ticket `automaticEmail*` flags) and `destructiveHint: false` for pure creates/additive posts (12). Matches Conduit's connectwise-psa tiers (63 read / 25 write / 1 admin; `cw_close_adjustment` is the admin tool and is destructive at the MCP layer).
+
 ### Security
 
 - **Gateway `X-CW-Url` is now validated before every request (#101).** The header is caller-controlled, and the server used to fetch whatever URL it held and follow redirects, so a gateway caller could reach loopback, private-network or cloud metadata addresses and read the response. A header URL must now be https with no credentials, query string or fragment, and every address its hostname resolves to must be public; the check re-runs on each request so a re-pointed hostname is caught. Gateway requests refuse redirects and time out after 30 seconds; env-mode `CW_MANAGE_URL` still follows redirects so self-hosted servers on a private network keep working. Credit to [@gschellhas](https://github.com/gschellhas) for the report.

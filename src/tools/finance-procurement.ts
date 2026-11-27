@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { customFieldConditionsSchema } from "./custom-field-conditions.js";
+import { READ_ONLY } from "./annotations.js";
 
 /**
  * Finance and procurement tools (ConnectWise Procurement + Sales APIs).
@@ -40,6 +41,7 @@ export function registerFinanceProcurementTools(
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'poDate desc')"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/procurement/purchaseorders", {
         conditions,
@@ -58,6 +60,7 @@ export function registerFinanceProcurementTools(
     {
       id: z.number().describe("Purchase order ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/procurement/purchaseorders/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -75,6 +78,7 @@ export function registerFinanceProcurementTools(
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
+    READ_ONLY,
     async ({ purchaseOrderId, conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get(
         `/procurement/purchaseorders/${purchaseOrderId}/lineitems`,
@@ -108,6 +112,7 @@ export function registerFinanceProcurementTools(
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'id desc')"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/procurement/products", {
         conditions,
@@ -126,6 +131,7 @@ export function registerFinanceProcurementTools(
     {
       id: z.number().describe("Procurement product item ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/procurement/products/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -146,6 +152,7 @@ export function registerFinanceProcurementTools(
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'id desc')"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/sales/orders", {
         conditions,
@@ -164,6 +171,7 @@ export function registerFinanceProcurementTools(
     {
       id: z.number().describe("Sales order ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/sales/orders/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -184,6 +192,7 @@ export function registerFinanceProcurementTools(
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
+    READ_ONLY,
     async ({ salesOrderId, conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const scope = `salesOrder/id=${salesOrderId}`;
       const result = await client.get("/procurement/products", {

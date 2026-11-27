@@ -4,6 +4,7 @@ import { CwManageClient, hasApiStatus } from "../api-client.js";
 import { customFieldConditionsSchema } from "./custom-field-conditions.js";
 import { buildTicketCard, TICKET_CARD_META } from "../card.builder.js";
 import { buildTicketNoteBody, mapCreatedNoteResponse } from "./note-payload.js";
+import { READ_ONLY, ADDITIVE_WRITE, DESTRUCTIVE_WRITE } from "./annotations.js";
 
 export function registerTicketTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -16,6 +17,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       conditions: z.string().optional().describe("ConnectWise conditions query string"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'id asc')"),
     },
+    READ_ONLY,
     async ({ id, page, pageSize, conditions, orderBy }) => {
       const result = await client.get(`/service/tickets/${id}/configurations`, {
         page: page ?? 1,
@@ -37,6 +39,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         configurationId: z.number().int().positive().describe("Existing configuration object ID"),
       })).min(1).describe("Nonempty ordered list of configuration association changes"),
     },
+    DESTRUCTIVE_WRITE,
     async ({ id, operations }) => {
       const results = [];
       const path = `/service/tickets/${id}/configurations`;
@@ -84,6 +87,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         .optional()
         .describe("Field to order by (e.g. 'id desc')"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/service/tickets", {
         conditions,
@@ -99,6 +103,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
   server.registerTool(
     "cw_get_ticket",
     {
+      annotations: READ_ONLY,
       description: "Get a specific service ticket by ID.",
       inputSchema: {
         id: z.number().describe("Ticket ID"),
@@ -147,6 +152,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
           "Parent ticket id (Manage Ticket.parentTicketId). When set, the new ticket is created as a child of this ticket. Omit to leave it unparented. Same field cw_get_ticket returns.",
         ),
     },
+    ADDITIVE_WRITE,
     async ({
       summary, boardId, companyId, contactId, statusId, priorityId, typeId, subTypeId, initialDescription,
       siteId, ownerId, automaticEmailContactFlag, automaticEmailResourceFlag, automaticEmailCcFlag, parentTicketId,
@@ -187,6 +193,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         )
         .describe("Array of JSON Patch operations"),
     },
+    DESTRUCTIVE_WRITE,
     async ({ id, operations }) => {
       const result = await client.patch(`/service/tickets/${id}`, operations);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -203,7 +210,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
         .min(1)
         .describe("Tickets to attach to the parent. Must not include the parent; duplicates are ignored."),
     },
-    { readOnlyHint: false, destructiveHint: true },
+    DESTRUCTIVE_WRITE,
     async ({ parentTicketId, childTicketIds }) => {
       if (childTicketIds.includes(parentTicketId)) {
         return {
@@ -253,6 +260,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
     },
+    READ_ONLY,
     async ({ id, page, pageSize }) => {
       try {
         const result = await client.get(`/service/tickets/${id}/allNotes`, {
@@ -277,6 +285,7 @@ export function registerTicketTools(server: McpServer, client: CwManageClient) {
   server.registerTool(
     "cw_add_ticket_note",
     {
+      annotations: ADDITIVE_WRITE,
       description:
         "Add a note to a service ticket. Use detailDescriptionFlag for a discussion note, internalAnalysisFlag for an internal-only note, or resolutionFlag for a resolution note. Defaults to a plain discussion note. Nothing is emailed unless processNotifications is true. emailContactFlag, emailResourceFlag, and emailCcFlag never default to true and are not sent: POST /service/tickets/{id}/notes (ServiceNote) does not have those fields (they belong to TimeEntry and to the ticket automaticEmail* fields). Sending them is what returns 400. A true flag only turns on processNotifications, unless you set processNotifications yourself. An explicit processNotifications false suppresses delivery even if a flag is true. When processNotifications is true and you did not set a type flag, this tool sets detailDescriptionFlag so Manage has a place to display the note. Recipients are the ticket's automaticEmailContactFlag, automaticEmailResourceFlag, automaticEmailCcFlag, and automaticEmailCc (cw_get_ticket / cw_update_ticket), not the note. emailCc is not sent; put CC addresses on the ticket automaticEmailCc field. To email one note and then stop, turn the ticket flag on, post with processNotifications true, then turn the flag off. memberId, when set, is sent as member.id and becomes the author. Omit memberId and Manage attributes the note to the API member that authenticated the call.",
       inputSchema: {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { READ_ONLY, ADDITIVE_WRITE, DESTRUCTIVE_WRITE } from "./annotations.js";
 
 /**
  * Procurement inventory tools (ConnectWise Procurement API).
@@ -174,6 +175,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
         .describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'name asc')"),
     },
+    READ_ONLY,
     async ({ conditions, page, pageSize, orderBy }) => {
       const result = await client.get("/procurement/warehouses", {
         conditions,
@@ -206,6 +208,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
         .describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'name asc')"),
     },
+    READ_ONLY,
     async ({ warehouseId, conditions, page, pageSize, orderBy }) => {
       const result = await client.get("/procurement/warehouseBins", {
         conditions: andConditions(
@@ -265,6 +268,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
           "Look up catalog item cost and description to compute extended value (default: true). Set false to skip the extra catalog calls",
         ),
     },
+    READ_ONLY,
     async ({
       warehouseId,
       binIds,
@@ -440,6 +444,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
         .optional()
         .describe("Field to order by (e.g. 'identifier asc')"),
     },
+    READ_ONLY,
     async ({ conditions, page, pageSize, orderBy }) => {
       const result = await client.get("/procurement/adjustments/types", {
         conditions,
@@ -478,6 +483,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
           "Free-text notes on the adjustment. Use this for the fuller explanation that will not fit in reason",
         ),
     },
+    ADDITIVE_WRITE,
     async ({ identifier, typeId, reason, notes }) => {
       const body: Record<string, unknown> = {
         identifier,
@@ -541,6 +547,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
           "Serial numbers being adjusted, for serialised items. Joined with commas into the single serialNumber field ConnectWise provides, which caps at 1000 characters",
         ),
     },
+    ADDITIVE_WRITE,
     async ({
       adjustmentId,
       catalogItemId,
@@ -584,6 +591,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
     {
       id: z.number().describe("Adjustment ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const adjustment = await client.get<Record<string, unknown>>(
         `/procurement/adjustments/${id}`,
@@ -618,6 +626,7 @@ export function registerProcurementTools(server: McpServer, client: CwManageClie
     {
       id: z.number().describe("Adjustment ID to close and post"),
     },
+    DESTRUCTIVE_WRITE,
     async ({ id }) => {
       const adjustment = await client.get<{ closedFlag?: boolean | null }>(
         `/procurement/adjustments/${id}`,

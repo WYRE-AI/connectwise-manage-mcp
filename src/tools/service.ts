@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
+import { READ_ONLY } from "./annotations.js";
 
 export function registerServiceTools(server: McpServer, client: CwManageClient) {
   server.tool(
@@ -11,6 +12,7 @@ export function registerServiceTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
     },
+    READ_ONLY,
     async ({ conditions, page, pageSize }) => {
       const result = await client.get("/service/boards", {
         conditions,
@@ -29,6 +31,7 @@ export function registerServiceTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
     },
+    READ_ONLY,
     async ({ conditions, page, pageSize }) => {
       const result = await client.get("/service/priorities", {
         conditions,
@@ -48,6 +51,7 @@ export function registerServiceTools(server: McpServer, client: CwManageClient) 
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
     },
+    READ_ONLY,
     async ({ boardId, conditions, page, pageSize }) => {
       const result = await client.get(`/service/boards/${boardId}/statuses`, {
         conditions,

@@ -9,6 +9,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwApiError, CwManageClient } from "../api-client.js";
+import { DESTRUCTIVE_WRITE } from "./annotations.js";
 
 /** Normalized (no leading slash) JSON Patch paths cw_update_invoice accepts in v1. */
 export const INVOICE_ALLOWED_PATHS: readonly string[] = [
@@ -246,7 +247,7 @@ export function registerInvoiceUpdateTool(server: McpServer, client: CwManageCli
         .optional()
         .describe("If true, fetch the current invoice, apply the patch locally, and return the would-be result without calling PATCH (no write is made)."),
     },
-    { readOnlyHint: false, destructiveHint: true },
+    DESTRUCTIVE_WRITE,
     async ({ id, operations, dryRun }) => {
       let normalized: InvoicePatchOperation[];
       try {

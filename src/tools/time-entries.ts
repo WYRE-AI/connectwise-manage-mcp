@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { customFieldConditionsSchema } from "./custom-field-conditions.js";
+import { READ_ONLY, DESTRUCTIVE_WRITE } from "./annotations.js";
 
 export interface CreateTimeEntryInput {
   chargeToType: "ServiceTicket" | "ProjectTicket" | "ChargeCode" | "Activity";
@@ -492,6 +493,7 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/time/entries", {
         conditions,
@@ -510,6 +512,7 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
     {
       id: z.number().describe("Time entry ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/time/entries/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -551,6 +554,10 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
         .optional()
         .describe("Default true. For service and project tickets, turn off the ticket's automaticEmail* flags matching false entry flags for the instant of the create, then restore them. false makes no ticket calls, so ConnectWise emails whoever the ticket flags say."),
     },
+    // Destructive: the default ServiceTicket/ProjectTicket path temporarily
+    // PATCHes the ticket's automaticEmail* flags; a failed restore can leave
+    // them off. Not a pure additive create.
+    DESTRUCTIVE_WRITE,
     async (input) => createTimeEntryWithEmailGuard(client, input),
   );
 
@@ -569,6 +576,7 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
         )
         .describe("JSON Patch operations applied to the time entry"),
     },
+    DESTRUCTIVE_WRITE,
     async ({ id, operations }) => {
       const result = await client.patch(`/time/entries/${id}`, operations);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -581,6 +589,7 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
     {
       id: z.number().describe("Time entry ID"),
     },
+    DESTRUCTIVE_WRITE,
     async ({ id }) => {
       await client.delete(`/time/entries/${id}`);
       return {

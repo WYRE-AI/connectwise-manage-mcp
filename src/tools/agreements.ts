@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { customFieldConditionsSchema } from "./custom-field-conditions.js";
 import { registerInvoiceUpdateTool } from "./invoices.js";
+import { READ_ONLY, ADDITIVE_WRITE, DESTRUCTIVE_WRITE } from "./annotations.js";
 
 // RFC 6902 requires a "value" member on add/replace but forbids relying on it
 // for remove. A flat z.object with an optional value let a caller omit it on
@@ -75,6 +76,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/finance/agreements", {
         conditions,
@@ -93,6 +95,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
     {
       id: z.number().describe("Agreement ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/finance/agreements/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -107,6 +110,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
       page: z.number().optional().describe("Page number (default: 1)"),
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
     },
+    READ_ONLY,
     async ({ agreementId, page, pageSize }) => {
       const result = await client.get(`/finance/agreements/${agreementId}/additions`, {
         page: page ?? 1,
@@ -135,6 +139,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'remainingAmount asc')"),
     },
+    READ_ONLY,
     async ({ conditions, page, pageSize, orderBy }) => {
       const result = await client.get("/finance/agreementrecap/", {
         conditions,
@@ -152,6 +157,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
     {
       id: z.number().describe("Agreement ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/finance/agreementrecap/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -170,6 +176,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
         .optional()
         .describe("If true, fetch the current addition, apply the patch locally, and return the would-be result without calling Manage (no write is made)."),
     },
+    DESTRUCTIVE_WRITE,
     async ({ agreementId, additionId, operations, dryRun }) => {
       const path = `/finance/agreements/${agreementId}/additions/${additionId}`;
       if (dryRun) {
@@ -206,6 +213,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
       taxableFlag: z.boolean().optional().describe("Whether this addition is taxable"),
       uom: z.string().optional().describe("Unit of measure"),
     },
+    ADDITIVE_WRITE,
     async ({
       agreementId,
       productId,
@@ -249,6 +257,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
       pageSize: z.number().optional().describe("Results per page (default: 25, max: 1000)"),
       orderBy: z.string().optional().describe("Field to order by (e.g. 'id desc')"),
     },
+    READ_ONLY,
     async ({ conditions, customFieldConditions, page, pageSize, orderBy }) => {
       const result = await client.get("/finance/invoices", {
         conditions,
@@ -267,6 +276,7 @@ export function registerAgreementTools(server: McpServer, client: CwManageClient
     {
       id: z.number().describe("Invoice ID"),
     },
+    READ_ONLY,
     async ({ id }) => {
       const result = await client.get(`/finance/invoices/${id}`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
