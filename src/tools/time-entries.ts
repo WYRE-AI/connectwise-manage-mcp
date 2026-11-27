@@ -2,7 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CwManageClient } from "../api-client.js";
 import { customFieldConditionsSchema } from "./custom-field-conditions.js";
-import { READ_ONLY, ADDITIVE_WRITE, DESTRUCTIVE_WRITE } from "./annotations.js";
+import { READ_ONLY, DESTRUCTIVE_WRITE } from "./annotations.js";
 
 export interface CreateTimeEntryInput {
   chargeToType: "ServiceTicket" | "ProjectTicket" | "ChargeCode" | "Activity";
@@ -554,7 +554,10 @@ export function registerTimeEntryTools(server: McpServer, client: CwManageClient
         .optional()
         .describe("Default true. For service and project tickets, turn off the ticket's automaticEmail* flags matching false entry flags for the instant of the create, then restore them. false makes no ticket calls, so ConnectWise emails whoever the ticket flags say."),
     },
-    ADDITIVE_WRITE,
+    // Destructive: the default ServiceTicket/ProjectTicket path temporarily
+    // PATCHes the ticket's automaticEmail* flags; a failed restore can leave
+    // them off. Not a pure additive create.
+    DESTRUCTIVE_WRITE,
     async (input) => createTimeEntryWithEmailGuard(client, input),
   );
 

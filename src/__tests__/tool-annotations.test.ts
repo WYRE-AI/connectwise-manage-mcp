@@ -93,13 +93,13 @@ const ADDITIVE_WRITE_TOOLS = new Set([
   "cw_create_project",
   "cw_create_schedule_entry",
   "cw_create_ticket",
-  "cw_create_time_entry",
 ]);
 
 /** Deletes, patches, moves, irreversible posts (destructiveHint:true). */
 const DESTRUCTIVE_WRITE_TOOLS = new Set([
   "cw_bundle_tickets",
   "cw_close_adjustment",
+  "cw_create_time_entry",
   "cw_delete_time_entry",
   "cw_update_agreement_addition",
   "cw_update_catalog_item",
@@ -182,14 +182,15 @@ describe("MCP tool annotations", () => {
     );
     expect(destructive.sort()).toEqual([...DESTRUCTIVE_WRITE_TOOLS].sort());
 
-    // Final counts for the release notes: 63 read / 26 write (13 additive + 13
+    // Final counts for the release notes: 63 read / 26 write (12 additive + 14
     // destructive). Conduit tiers are 63 read / 25 write / 1 admin; the admin
     // tool (cw_close_adjustment) is a destructive write at the MCP layer.
+    // cw_create_time_entry is destructive because it may PATCH ticket flags.
     expect({
       read: read.length,
       write: write.length,
       destructive: destructive.length,
       additive: write.length - destructive.length,
-    }).toEqual({ read: 63, write: 26, destructive: 13, additive: 13 });
+    }).toEqual({ read: 63, write: 26, destructive: 14, additive: 12 });
   });
 });

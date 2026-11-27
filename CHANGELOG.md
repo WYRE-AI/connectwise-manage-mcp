@@ -2,7 +2,7 @@
 
 ### Fixed
 
-- **ITCSNY / Claude read-tool false positives.** Every registered MCP tool now advertises explicit `readOnlyHint` annotations so clients do not treat ConnectWise Manage reads as possible writes. Read tools (63) use `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`. Write tools (26) use `readOnlyHint: false`, with `destructiveHint: true` for deletes/patches/moves/irreversible posts (13) and `destructiveHint: false` for pure creates/additive posts (13). Matches Conduit's connectwise-psa tiers (63 read / 25 write / 1 admin; `cw_close_adjustment` is the admin tool and is destructive at the MCP layer).
+- **ITCSNY / Claude read-tool false positives.** Every registered MCP tool now advertises explicit `readOnlyHint` annotations so clients do not treat ConnectWise Manage reads as possible writes. Read tools (63) use `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`. Write tools (26) use `readOnlyHint: false`, with `destructiveHint: true` for deletes/patches/moves/irreversible posts (14, including `cw_create_time_entry` which may PATCH ticket `automaticEmail*` flags) and `destructiveHint: false` for pure creates/additive posts (12). Matches Conduit's connectwise-psa tiers (63 read / 25 write / 1 admin; `cw_close_adjustment` is the admin tool and is destructive at the MCP layer).
 
 ### Security
 
